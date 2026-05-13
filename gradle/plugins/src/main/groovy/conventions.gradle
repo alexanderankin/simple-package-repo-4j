@@ -1,0 +1,73 @@
+plugins {
+    id 'java'
+    id 'idea'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+    withSourcesJar()
+}
+
+repositories.mavenCentral()
+
+// https://docs.gradle.org/current/userguide/java_testing.html#sec:configuring_java_integration_tests
+sourceSets {
+    itest {
+        compileClasspath += main.output + test.output
+        runtimeClasspath += main.output + test.output
+    }
+}
+
+// tell intellij about the sourceSet
+idea {
+    module {
+        sourceDirs -= file('src/itest/java')
+        testSources.from file('src/itest/java')
+        downloadSources = true
+    }
+}
+
+configurations {
+    testAnnotationProcessor.extendsFrom annotationProcessor
+    testCompileOnly.extendsFrom compileOnly
+
+    itestImplementation.extendsFrom testImplementation
+    itestRuntimeOnly.extendsFrom testRuntimeOnly
+
+    itestAnnotationProcessor.extendsFrom testAnnotationProcessor
+    itestCompileOnly.extendsFrom testCompileOnly
+
+    implementation {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+
+    // https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+    mockitoAgent
+}
+
+dependencies {
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.0.6')
+    annotationProcessor platform('org.springframework.boot:spring-boot-dependencies:4.0.6')
+    implementation platform('org.springframework.cloud:spring-cloud-dependencies:2025.1.1')
+
+    annotationProcessor 'org.projectlombok:lombok'
+    compileOnly 'org.projectlombok:lombok'
+
+    implementation 'org.slf4j:jcl-over-slf4j'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    itestImplementation 'org.testcontainers:testcontainers'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    mockitoAgent('org.mockito:mockito-core:5+') { transitive = false }
+
+    constraints {
+        implementation 'org.apache.commons:commons-compress:1.27.1'
+        implementation 'org.pgpainless:pgpainless-core:1.7.5'
+    }
+}
+
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+tasks.withType(Test).configureEach { jvmArgs.add('-javaagent:' + configurations.mockitoAgent.asPath) }
+tasks.withType(JavaCompile).configureEach { options.compilerArgs.add '-parameters' }
