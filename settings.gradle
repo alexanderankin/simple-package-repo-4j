@@ -1,0 +1,13 @@
+rootProject.name = 'simple-package-repo-4j'
+
+includeBuild 'gradle/plugins'
+
+include ':repo-cli'
+include ':repo-core'
+include ':repo-output-alpine'
+include ':repo-output-deb'
+include ':repo-output-nixpkg'
+include ':repo-output-pacman'
+include ':repo-output-rpm'
+include ':repo-output-winget'
+include ':repo-testing'
