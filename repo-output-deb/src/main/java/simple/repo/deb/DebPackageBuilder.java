@@ -19,6 +19,7 @@ import simple.repo.packaging.PackageBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -39,7 +40,9 @@ public class DebPackageBuilder implements PackageBuilder {
 
     @Override
     public String archName(Arch arch) {
-        return Objects.requireNonNull(DebArch.fromJdkArchName(arch.name()), () -> "unknown arch: " + arch).name();
+        if (arch == null)
+            return "all";
+        return Objects.requireNonNull(DebArch.fromArch(arch), () -> "unknown arch: " + arch).name();
     }
 
     @Override
@@ -126,11 +129,24 @@ public class DebPackageBuilder implements PackageBuilder {
             for (PackageConfig.TarFileSpec f : allFiles) {
 
                 byte[] content = switch (f) {
-                    case PackageConfig.TarFileSpec.TextTarFileSpec text -> text.getContent().getBytes();
                     case PackageConfig.TarFileSpec.BinaryTarFileSpec bin -> bin.getContent();
+                    case PackageConfig.TarFileSpec.TextTarFileSpec text ->
+                            text.getContent().getBytes(StandardCharsets.UTF_8);
                     case PackageConfig.TarFileSpec.FileTarFileSpec fs ->
                             Files.readAllBytes(current.resolve(fs.getSourcePath()));
-                    case PackageConfig.TarFileSpec.UrlTarFileSpec fs -> downloadUrlTarFile(fs);
+                    case PackageConfig.TarFileSpec.UrlTarFileSpec fs -> Objects.requireNonNull(
+                            restClient.get()
+                                    .uri(fs.getUrl())
+                                    .headers(h -> {
+                                        if (!CollectionUtils.isEmpty(fs.getHeaders()))
+                                            h.putAll(fs.getHeaders());
+                                        if (fs.getBearerToken() != null)
+                                            h.setBearerAuth(fs.getBearerToken());
+                                    })
+                                    .retrieve()
+                                    .body(byte[].class),
+                            "no response body"
+                    );
                 };
                 TarArchiveEntry entry = new TarArchiveEntry(f.getPath());
                 entry.setSize(content.length);

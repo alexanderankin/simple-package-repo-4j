@@ -15,6 +15,7 @@ import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 
+@Dto
 @Data
 @Accessors(chain = true)
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -36,6 +37,7 @@ public class PackageConfig {
             @JsonSubTypes.Type(value = TarFileSpec.FileTarFileSpec.class, name = "file"),
             @JsonSubTypes.Type(value = TarFileSpec.UrlTarFileSpec.class, name = "url"),
     })
+    @Dto
     @Data
     @Accessors(chain = true)
     public static sealed abstract class TarFileSpec {
@@ -44,6 +46,7 @@ public class PackageConfig {
 
         @ToString(callSuper = true)
         @EqualsAndHashCode(callSuper = true)
+        @Dto
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -54,6 +57,7 @@ public class PackageConfig {
 
         @ToString(callSuper = true)
         @EqualsAndHashCode(callSuper = true)
+        @Dto
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -64,6 +68,7 @@ public class PackageConfig {
 
         @ToString(callSuper = true)
         @EqualsAndHashCode(callSuper = true)
+        @Dto
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -74,6 +79,7 @@ public class PackageConfig {
 
         @ToString(callSuper = true)
         @EqualsAndHashCode(callSuper = true)
+        @Dto
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -85,6 +91,7 @@ public class PackageConfig {
         }
     }
 
+    @Dto
     @Data
     @Accessors(chain = true)
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -96,6 +103,7 @@ public class PackageConfig {
         String version;
         @NotNull
         Arch arch;
+        String elVersion;
 
         // @JsonIgnore
         // public String getDebFilename() {
@@ -108,6 +116,7 @@ public class PackageConfig {
         // }
     }
 
+    @Dto
     @Data
     @Accessors(chain = true)
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -150,6 +159,7 @@ public class PackageConfig {
         }
     }
 
+    @Dto
     @Data
     @Accessors(chain = true)
     @JsonIgnoreProperties(ignoreUnknown = true)

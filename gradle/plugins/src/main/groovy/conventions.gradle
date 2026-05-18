@@ -63,8 +63,15 @@ dependencies {
     mockitoAgent('org.mockito:mockito-core:5+') { transitive = false }
 
     constraints {
-        implementation 'org.apache.commons:commons-compress:1.27.1'
+        // Source: https://mvnrepository.com/artifact/org.apache.commons/commons-compress
+        implementation 'org.apache.commons:commons-compress:1.27.1' // 1.28.0
+        // this is in spring boot dependencies now?
+        // Source: https://mvnrepository.com/artifact/commons-codec/commons-codec
+        implementation 'commons-codec:commons-codec:1.22.0'
+        // Source: https://mvnrepository.com/artifact/org.pgpainless/pgpainless-core
         implementation 'org.pgpainless:pgpainless-core:1.7.5'
+        // Source: https://mvnrepository.com/artifact/com.github.luben/zstd-jni
+        implementation 'com.github.luben:zstd-jni:1.5.7-8'
     }
 }
 

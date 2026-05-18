@@ -2,12 +2,19 @@ package simple.repo.deb;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import simple.repo.model.Arch;
 
 import java.util.Arrays;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * {@code any} = "the code has been written portably", {@code all} = "do not need to be compiled"
+ *
+ * @see <a href=https://wiki.debian.org/Multiarch>Multiarch</a>
+ * @see <a href=https://wiki.debian.org/Packaging/Intro>Packaging/Intro</a>
+ */
 @Getter
 @RequiredArgsConstructor
 public enum DebArch {
@@ -21,10 +28,6 @@ public enum DebArch {
      * <code>sudo apt install qemu-system-misc</code>
      */
     riscv64("riscv64"),
-    /**
-     * package intended for all architectures
-     */
-    all("all"),
     ;
 
     private static final Map<String, DebArch> MAP = Arrays.stream(values())
@@ -32,7 +35,7 @@ public enum DebArch {
 
     private final String jdkArchName;
 
-    public static DebArch fromJdkArchName(String jdkArchName) {
-        return MAP.get(jdkArchName);
+    public static DebArch fromArch(Arch arch) {
+        return MAP.get(arch.name());
     }
 }

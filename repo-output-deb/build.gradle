@@ -4,8 +4,4 @@ plugins {
 
 dependencies {
     implementation project(':repo-core')
-    implementation 'org.springframework:spring-web'
-    implementation 'org.apache.httpcomponents.client5:httpclient5'
-
-    implementation 'org.apache.commons:commons-compress'
 }
