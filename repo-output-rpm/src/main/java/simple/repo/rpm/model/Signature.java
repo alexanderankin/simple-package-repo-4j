@@ -74,6 +74,9 @@ public class Signature {
     public static Signature parseSignature(Index index, ByteBuffer bb) {
         var signature = of(index, bb.slice(bb.position(), index.intro.dataLength), TagType.SIGNATURE);
         bb.position(bb.position() + index.intro.dataLength);
+        // The Signature uses the same underlying data structure as the Header, but is zero-padded to a multiple of 8 bytes.
+        // https://rpm.org/docs/6.1.x/manual/format_v4.html
+        bb.position(bb.position() + (8 - (bb.position() % 8)));
         return signature;
     }
 
@@ -238,6 +241,10 @@ public class Signature {
 
         public int indexSize() {
             return entryCount * 16;
+        }
+
+        public int totalSize() {
+            return SIZE + indexSize() + dataLength;
         }
 
         public byte[] toByteArray() {

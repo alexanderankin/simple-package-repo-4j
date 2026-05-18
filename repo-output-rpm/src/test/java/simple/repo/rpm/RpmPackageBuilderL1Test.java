@@ -4,28 +4,27 @@ import lombok.SneakyThrows;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream;
+import org.apache.commons.compress.compressors.CompressorStreamFactory;
 import org.junit.jupiter.api.Test;
+import simple.repo.rpm.model.SampleData;
 
 import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.zip.GZIPInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class RpmPackageBuilderL1Test {
+public class RpmPackageBuilderL1Test extends SampleData {
     @SneakyThrows
     @Test
     void scratchWork() {
-        var rpmData = Files.readAllBytes(Path.of("/Users/toor/IdeaProjects/simple-package-repo-4j/repo-core/src/main/resources/htop-3.3.0-5.el10_0.x86_64.rpm"));
+        var rpmData = readBytes("yum-utils-4.7.0-9.el10.noarch.rpm");
 
         var rpmDataBuffer = ByteBuffer.wrap(rpmData);
         var rpmDataHeaderIntro = rpmDataBuffer.slice(96, 96 + 16).asIntBuffer();
@@ -75,14 +74,12 @@ public class RpmPackageBuilderL1Test {
         var headerTop = rpmDataHeaderData.arrayOffset() + entryContentMap.stream().mapToInt(i -> lengthOf(rpmDataHeaderData, i.headerEntry)).sum();
         // var rest = rpmDataBuffer.slice(headerTop, rpmDataBuffer.capacity() - headerTop);
 
-        if (2 > 1)
-            return;
         // var restArray = HeaderEntryWithContent.bbToArray(rest);
         //
         // System.out.println(Hex.encodeHexString(restArray));
 
         var bais = new ByteArrayInputStream(rpmData, headerTop, rpmData.length - headerTop);
-        var gis = new GZIPInputStream(bais);
+        var gis = new CompressorStreamFactory().createCompressorInputStream(bais);
         var gunzipped = gis.readAllBytes();
         var cpioInputStream = new CpioArchiveInputStream(new ByteArrayInputStream(gunzipped));
         CpioArchiveEntry nextEntry;

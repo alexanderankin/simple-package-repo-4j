@@ -161,6 +161,7 @@ public class Lead {
     @Getter
     @RequiredArgsConstructor
     public enum OsNum {
+        unknown(0), // seen in wild from canonicals cloud-utils package
         linux(1),
         irix(2),
         solaris(3),

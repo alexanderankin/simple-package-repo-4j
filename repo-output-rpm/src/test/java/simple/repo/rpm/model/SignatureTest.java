@@ -6,11 +6,11 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream;
-import org.apache.commons.compress.archivers.cpio.CpioConstants;
 import org.apache.commons.compress.compressors.CompressorStreamFactory;
 import org.apache.commons.compress.compressors.zstandard.ZstdUtils;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import simple.repo.rpm.RpmTags;
 import simple.repo.rpm.RpmTags.RpmTagType;
 import simple.repo.rpm.model.Signature.Index;
 import simple.repo.rpm.model.Signature.Index.IndexEntry;
@@ -21,13 +21,11 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SignatureTest extends SampleData {
 
@@ -58,12 +56,14 @@ class SignatureTest extends SampleData {
     @SneakyThrows
     @Test
     void testSignature() {
-        var bb = ByteBuffer.wrap(readBytes(testFileNames().getFirst()));
+        var bb = ByteBuffer.wrap(readBytes("cloud-utils-0.33-13.fc44.noarch.rpm"));
         // var bb = ByteBuffer.wrap(Files.readAllBytes(Path.of("/Users/toor/IdeaProjects/simple-package-repo-4j/repo-core/src/main/resources/htop-3.3.0-5.el10_0.x86_64.rpm")));
         var lead = Lead.parse(bb);
         var intro = Intro.parse(bb);
         var index = Index.parse(intro, bb);
         var sig = Signature.parseSignature(index, bb);
+        System.out.println("index tags: " + sig.entries.stream().map(Signature.SignatureEntry::getTag).toList());
+        /*
         System.out.println(sig);
         System.out.println(JsonMapper.builder().build().writeValueAsString(sig));
         sig.entries.stream()
@@ -71,36 +71,46 @@ class SignatureTest extends SampleData {
                     return Map.entry(se, smartToString(se.type, se.copyByteArray()));
                 })
                 .forEach(System.out::println);
+        */
 
-        bb.position(bb.position() + 4);
-
+        var beforeHeader = bb.position();
         var headerIntro = Intro.parse(bb);
         var headerIndex = Index.parse(headerIntro, bb);
+
+        /*
         System.out.println("headerIntro: " + headerIntro);
         System.out.println("headerIndex: " + headerIndex);
+        */
 
         Signature headerSignature = Signature.parseHeader(headerIndex, bb);
+        System.out.println("header tags: " + headerSignature.entries.stream().map(Signature.SignatureEntry::getTag).toList());
+        /*
         System.out.println("headerSignature: " + JsonMapper.builder().build().writeValueAsString(headerSignature));
+        */
 
-        byte[] cpIoMagic = new byte[6];
-        bb.get(cpIoMagic);
-        assertTrue(ZstdUtils.matches(cpIoMagic, 4));
+        {
+            byte[] magic = new byte[4];
+            bb.get(bb.position(), magic);
+            assertTrue(ZstdUtils.matches(magic, 4));
+        }
 
-        // var beforeDecompress = bb.position();
-        // var compressorInputStream = new CompressorStreamFactory().createCompressorInputStream(new BufferedInputStream(new ByteBufferBackedInputStream(bb)));
-        // var decompressed = compressorInputStream.readAllBytes();
-        // System.out.println("decompressed: " + decompressed);
-        //
-        // var cpioArchiveInputStream = new CpioArchiveInputStream(new ByteArrayInputStream(decompressed));
-        // CpioArchiveEntry nextEntry;
-        // while (null != (nextEntry = cpioArchiveInputStream.getNextEntry())) {
-        //     var entryBytes = cpioArchiveInputStream.readAllBytes();
-        //     System.out.println("nextEntry: " + stringify(nextEntry) + ", entryBytes: " + entryBytes.length);
-        // }
-        //
-        // var bytes = DigestUtils.sha1(Arrays.copyOfRange(bb.array(), lead.SIZE + intro.SIZE + intro.indexSize() + intro.getDataLength(), bb.array().length));
-        // System.out.println(Hex.encodeHexString(bytes));
-        // System.out.println();
+        var decompressed = new CompressorStreamFactory().createCompressorInputStream(new BufferedInputStream(new ByteBufferBackedInputStream(bb))).readAllBytes();
+
+        var cpioArchiveInputStream = new CpioArchiveInputStream(new ByteArrayInputStream(decompressed));
+        CpioArchiveEntry nextEntry;
+        while (null != (nextEntry = cpioArchiveInputStream.getNextEntry())) {
+            var entryBytes = cpioArchiveInputStream.readAllBytes();
+            System.out.println("nextEntry: " + stringify(nextEntry) + ", entryBytes: " + entryBytes.length);
+        }
+
+        var from = lead.SIZE + ((intro.SIZE + intro.indexSize() + intro.getDataLength() + 7) & ~7);
+        var to = lead.SIZE + ((intro.SIZE + intro.indexSize() + intro.getDataLength() + 7) & ~7) + headerIntro.SIZE + headerIntro.indexSize() + headerIntro.getDataLength();
+        assertEquals(beforeHeader, from);
+        assertEquals(beforeHeader + headerIntro.totalSize(), to);
+        assertEquals(new String(sig.entries.stream().filter(e -> e.tag == RpmTags.SignatureTag.SHA1).findAny().orElseThrow().copyByteArray()), DigestUtils.sha1Hex(new ByteArrayInputStream(bb.array(), beforeHeader, headerIntro.totalSize())));
+        assertEquals(new String(sig.entries.stream().filter(e -> e.tag == RpmTags.SignatureTag.SHA256).findAny().orElseThrow().copyByteArray()), DigestUtils.sha256Hex(new ByteArrayInputStream(bb.array(), beforeHeader, headerIntro.totalSize())));
+
+        assertEquals(Hex.encodeHexString(sig.entries.stream().filter(e -> e.tag == RpmTags.SignatureTag.MD5).findAny().orElseThrow().copyByteArray()), DigestUtils.md5Hex(new ByteArrayInputStream(bb.array(), beforeHeader, bb.array().length)));
     }
 
     @SneakyThrows
