@@ -44,7 +44,7 @@ public class RpmPackageBuilder implements PackageBuilder {
     public String archName(Arch arch) {
         if (arch == null)
             return "noarch";
-        return RpmArch.fromArch(arch).name();
+        return Objects.requireNonNull(RpmArch.fromArch(arch), () -> "Unknown arch: " + arch).name();
     }
 
     /**

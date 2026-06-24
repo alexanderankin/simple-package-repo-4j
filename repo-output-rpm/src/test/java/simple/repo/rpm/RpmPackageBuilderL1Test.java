@@ -96,7 +96,7 @@ public class RpmPackageBuilderL1Test extends SampleData {
             case RPM_INT16_TYPE -> e.count * 2;
             case RPM_INT32_TYPE -> e.count * 4;
             case RPM_INT64_TYPE -> e.count * 8;
-            case RPM_STRING_TYPE, RPM_STRING_ARRAY_TYPE -> {
+            case RPM_STRING_TYPE, RPM_STRING_ARRAY_TYPE, RPM_I18NSTRING_TYPE -> {
                 var length = 0;
                 var oldPosition = rpmDataHeaderData.position();
                 rpmDataHeaderData.position(e.offset);

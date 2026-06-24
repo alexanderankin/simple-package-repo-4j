@@ -104,6 +104,11 @@ public class PackageConfig {
         @NotNull
         Arch arch;
         String elVersion;
+        String releaseVersion;
+        /**
+         * e.g. {@code CTO <cto@contoso.com>}
+         */
+        String releaser;
 
         // @JsonIgnore
         // public String getDebFilename() {

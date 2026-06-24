@@ -14,7 +14,13 @@ public class FileIntegrity {
     String sha256;
     String sha512;
 
-    static FileIntegrity of(byte[] content, String path) {
+    public static FileIntegrity sha256(byte[] content, String path) {
+        return new FileIntegrity()
+                .setPath(path)
+                .setSha256(DigestUtils.sha256Hex(content));
+    }
+
+    public static FileIntegrity of(byte[] content, String path) {
         return new FileIntegrity()
                 .setPath(path)
                 .setSize(content.length)

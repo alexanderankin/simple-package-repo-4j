@@ -1,6 +1,7 @@
 package simple.repo.model;
 
 import lombok.Data;
+import lombok.ToString;
 import lombok.experimental.Accessors;
 
 import java.nio.charset.StandardCharsets;
@@ -8,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 @Data
 @Accessors(chain = true)
 public class FileIntegrityWithContent {
+    @ToString.Exclude
     byte[] content;
     FileIntegrity fileIntegrity;
 

@@ -3,6 +3,8 @@ plugins {
     id 'java-library'
 }
 
+version = '0.0.1'
+
 dependencies {
     api 'org.springframework.boot:spring-boot-starter-json'
     api 'org.springframework.boot:spring-boot-starter-validation'
@@ -10,7 +12,7 @@ dependencies {
 
     api 'org.springframework:spring-core'
     api 'org.springframework:spring-web'
-    api 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml'
+    api 'tools.jackson.dataformat:jackson-dataformat-yaml'
     api 'org.apache.httpcomponents.client5:httpclient5'
 
     api 'org.apache.commons:commons-compress'

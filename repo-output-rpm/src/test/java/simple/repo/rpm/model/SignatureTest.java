@@ -1,6 +1,5 @@
 package simple.repo.rpm.model;
 
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import lombok.SneakyThrows;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -15,6 +14,7 @@ import simple.repo.rpm.RpmTags.RpmTagType;
 import simple.repo.rpm.model.Signature.Index;
 import simple.repo.rpm.model.Signature.Index.IndexEntry;
 import simple.repo.rpm.model.Signature.Intro;
+import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.util.ByteBufferBackedInputStream;
 
 import java.io.BufferedInputStream;
@@ -51,6 +51,12 @@ class SignatureTest extends SampleData {
                         new IndexEntry().setTag(1008).setType(RpmTagType.RPM_BIN_TYPE).setOffset(696).setCount(3548)));
 
         assertEquals(expected, index);
+    }
+
+    @SneakyThrows
+    @Test
+    void test() {
+
     }
 
     @SneakyThrows
@@ -142,7 +148,7 @@ class SignatureTest extends SampleData {
 
     private String smartToString(RpmTagType tagType, byte[] content) {
         return switch (tagType) {
-            case RPM_CHAR_TYPE, RPM_BIN_TYPE, RPM_STRING_TYPE, RPM_STRING_ARRAY_TYPE -> {
+            case RPM_CHAR_TYPE, RPM_BIN_TYPE, RPM_STRING_TYPE, RPM_STRING_ARRAY_TYPE, RPM_I18NSTRING_TYPE -> {
                 var charsetEncoder = StandardCharsets.US_ASCII.newEncoder();
 
                 for (byte b : content) {

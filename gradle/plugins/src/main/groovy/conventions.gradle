@@ -3,6 +3,8 @@ plugins {
     id 'idea'
 }
 
+group = 'info.ankin.projects'
+
 java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
@@ -78,3 +80,5 @@ dependencies {
 tasks.withType(Test).configureEach { useJUnitPlatform() }
 tasks.withType(Test).configureEach { jvmArgs.add('-javaagent:' + configurations.mockitoAgent.asPath) }
 tasks.withType(JavaCompile).configureEach { options.compilerArgs.add '-parameters' }
+
+tasks.withType(Jar).configureEach { manifest.attributes(['Implementation-Version': version]) }

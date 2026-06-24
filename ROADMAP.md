@@ -8,3 +8,7 @@ first part will deal with:
 * deb (port over code, make pluggable and reusable)
 * rpm (reuse architecture for rpm as much as possible)
 * pacman
+
+current non-goals:
+
+* non-binary packages

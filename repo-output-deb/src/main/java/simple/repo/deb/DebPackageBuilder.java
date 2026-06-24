@@ -11,17 +11,16 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
-import org.springframework.web.client.RestClient;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
+import simple.repo.packaging.FileSpecReader;
 import simple.repo.packaging.PackageBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -30,8 +29,7 @@ import java.util.zip.GZIPOutputStream;
 @Accessors(chain = true)
 @Slf4j
 public class DebPackageBuilder implements PackageBuilder {
-    Path current = Path.of(System.getProperty("user.dir"));
-    RestClient restClient = RestClient.create();
+    FileSpecReader fileSpecReader = new FileSpecReader();
 
     @Override
     public String outputType() {
@@ -127,27 +125,7 @@ public class DebPackageBuilder implements PackageBuilder {
             allFiles.addAll(extra);
 
             for (PackageConfig.TarFileSpec f : allFiles) {
-
-                byte[] content = switch (f) {
-                    case PackageConfig.TarFileSpec.BinaryTarFileSpec bin -> bin.getContent();
-                    case PackageConfig.TarFileSpec.TextTarFileSpec text ->
-                            text.getContent().getBytes(StandardCharsets.UTF_8);
-                    case PackageConfig.TarFileSpec.FileTarFileSpec fs ->
-                            Files.readAllBytes(current.resolve(fs.getSourcePath()));
-                    case PackageConfig.TarFileSpec.UrlTarFileSpec fs -> Objects.requireNonNull(
-                            restClient.get()
-                                    .uri(fs.getUrl())
-                                    .headers(h -> {
-                                        if (!CollectionUtils.isEmpty(fs.getHeaders()))
-                                            h.putAll(fs.getHeaders());
-                                        if (fs.getBearerToken() != null)
-                                            h.setBearerAuth(fs.getBearerToken());
-                                    })
-                                    .retrieve()
-                                    .body(byte[].class),
-                            "no response body"
-                    );
-                };
+                byte[] content = fileSpecReader.readContent(f);
                 TarArchiveEntry entry = new TarArchiveEntry(f.getPath());
                 entry.setSize(content.length);
 
@@ -161,22 +139,6 @@ public class DebPackageBuilder implements PackageBuilder {
             }
         }
         return out.toByteArray();
-    }
-
-
-    private byte[] downloadUrlTarFile(PackageConfig.TarFileSpec.UrlTarFileSpec fs) {
-        byte[] result = restClient.get()
-                .uri(fs.getUrl())
-                .headers(h -> {
-                    if (!CollectionUtils.isEmpty(fs.getHeaders()))
-                        h.putAll(fs.getHeaders());
-                    if (fs.getBearerToken() != null)
-                        h.setBearerAuth(fs.getBearerToken());
-                })
-                .retrieve()
-                .body(byte[].class);
-        Assert.isTrue(result != null, "have result");
-        return result;
     }
 
     /**

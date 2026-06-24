@@ -22,8 +22,9 @@ public class Signature {
         }
 
         var signature = new Signature();
-        var entries = new ArrayList<SignatureEntry>(index.entries.size());
-        signature.setEntries(entries);
+        record SignatureEntryWithOffset(SignatureEntry se, int offset) {
+        }
+        var entries = new ArrayList<SignatureEntryWithOffset>(index.entries.size());
 
         for (var entry : index.entries) {
             RpmTags anEnum = switch (tagType) {
@@ -31,7 +32,7 @@ public class Signature {
                 case HEADER -> toHeaderEnum(entry.tag);
             };
             var e = new SignatureEntry().setTag(anEnum).setType(entry.type);
-            entries.add(e);
+            entries.add(new SignatureEntryWithOffset(e, entry.offset));
 
             var contentLength = switch (entry.type) {
                 case RPM_CHAR_TYPE, RPM_BIN_TYPE -> entry.count;
@@ -55,6 +56,10 @@ public class Signature {
 
             e.content = dataBuffer.slice(entry.offset, contentLength);
         }
+        signature.setEntries(entries.stream()
+                .sorted(Comparator.comparing(SignatureEntryWithOffset::offset))
+                .map(SignatureEntryWithOffset::se)
+                .toList());
 
         return signature;
     }
@@ -87,7 +92,17 @@ public class Signature {
     }
 
     public int totalLength() {
-        return entries.stream().mapToInt(SignatureEntry::findLength).sum();
+        int offset = 0;
+        for (SignatureEntry entry : entries) {
+            offset += headerDataAlignmentOffset(entry.type, offset);
+            offset += entry.content.capacity();
+            if (entry.type == RpmTags.RpmTagType.RPM_STRING_TYPE ||
+                    entry.type == RpmTags.RpmTagType.RPM_STRING_ARRAY_TYPE ||
+                    entry.type == RpmTags.RpmTagType.RPM_I18NSTRING_TYPE) {
+                offset += 1;
+            }
+        }
+        return offset;
     }
 
     public List<Index.IndexEntry> toIndexEntries() {
@@ -102,8 +117,66 @@ public class Signature {
                 .setEntries(toIndexEntries());
     }
 
-    public ByteBuffer asDataBuffer() {
-        throw new UnsupportedOperationException();
+    public byte[] toByteArray() {
+        return toByteBuffer().array();
+    }
+
+    public ByteBuffer toByteBuffer() {
+        return toByteBuffer(ByteBuffer.allocate(totalLength()));
+    }
+
+    public ByteBuffer toByteBuffer(ByteBuffer byteBuffer) {
+        int offset = 0;
+        for (SignatureEntry entry : entries) {
+            int alignmentOffset = headerDataAlignmentOffset(entry.type, offset);
+
+            for (int i = 0; i < alignmentOffset; i++) {
+                byteBuffer.put((byte) 0);
+            }
+            offset += alignmentOffset;
+
+            if (entry.content.capacity() > byteBuffer.remaining())
+                System.out.println();
+            byteBuffer.put(entry.content);
+            offset += entry.content.capacity();
+
+            if (entry.type == RpmTags.RpmTagType.RPM_STRING_TYPE ||
+                    entry.type == RpmTags.RpmTagType.RPM_STRING_ARRAY_TYPE ||
+                    entry.type == RpmTags.RpmTagType.RPM_I18NSTRING_TYPE) {
+                byteBuffer.put((byte) 0);
+                offset += 1;
+            }
+        }
+        return byteBuffer;
+    }
+
+    /**
+     * The integer types are aligned to appropriate byte boundaries,
+     * so that the data of INT64 type starts on an 8 byte boundary,
+     * INT32 type starts on a 4 byte boundary,
+     * and an INT16 type starts on a 2 byte boundary.
+     * <p>
+     * Each string is null terminated,
+     * the strings in a STRING_ARRAY are also null-terminated
+     * and are placed one after another.
+     * <p>
+     * The size of integral types is a straightforward multiplication
+     * based on the type size in the above table.
+     * but the string sizes must be determined by walking the data
+     * looking for the null-bytes while taking care to stay within bounds.
+     *
+     * @param type   type of the header about to be inserted
+     * @param offset offset so far
+     * @return number of bytes to insert before this header to align it
+     * @see <a href=https://rpm-software-management.github.io/rpm/manual/format_header.html#data>rpm manual: format_header: Data</a>
+     */
+    private int headerDataAlignmentOffset(RpmTags.RpmTagType type, int offset) {
+        return switch (type) {
+            case RPM_INT16_TYPE -> (2 - (offset % 2)) % 2;
+            case RPM_INT32_TYPE -> (4 - (offset % 4)) % 4;
+            case RPM_INT64_TYPE -> (8 - (offset % 8)) % 8;
+            default -> 0;
+        };
     }
 
     public enum TagType {
@@ -171,15 +244,15 @@ public class Signature {
             return index;
         }
 
-        public byte[] asByteArray() {
-            return asByteBuffer().array();
+        public byte[] toByteArray() {
+            return toByteBuffer().array();
         }
 
-        public ByteBuffer asByteBuffer() {
-            return asByteBuffer(ByteBuffer.allocate(intro.indexSize()));
+        public ByteBuffer toByteBuffer() {
+            return toByteBuffer(ByteBuffer.allocate(intro.indexSize()));
         }
 
-        public ByteBuffer asByteBuffer(ByteBuffer byteBuffer) {
+        public ByteBuffer toByteBuffer(ByteBuffer byteBuffer) {
             if (byteBuffer.remaining() != intro.indexSize()) {
                 throw new IllegalArgumentException("intro.entryCount != entryCount * 16");
             }
