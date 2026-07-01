@@ -6,15 +6,11 @@ import org.bouncycastle.bcpg.BCPGOutputStream;
 import org.bouncycastle.bcpg.HashAlgorithmTags;
 import org.bouncycastle.openpgp.*;
 import org.bouncycastle.openpgp.operator.jcajce.JcaPGPContentSignerBuilder;
-import org.pgpainless.PGPainless;
-import org.pgpainless.algorithm.*;
-import org.pgpainless.key.generation.KeySpec;
-import org.pgpainless.key.generation.type.KeyType;
-import org.pgpainless.key.generation.type.rsa.RsaLength;
 import org.pgpainless.key.parsing.KeyRingReader;
 import org.pgpainless.key.protection.UnlockSecretKey;
-import org.pgpainless.signature.subpackets.SignatureSubpackets;
+import org.pgpainless.sop.SOPImpl;
 import org.pgpainless.util.Passphrase;
+import sop.SOP;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -22,66 +18,29 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
-import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.stream.Stream;
 
 public class KeysUtils {
-    @SuppressWarnings("deprecation")
-    private static RsaLength defaultRsaLength() {
-        return RsaLength._2048;
-    }
 
     @SneakyThrows
-    public static byte[] genKeyPairKeyring(String name, String email, Instant createdAt) {
-        return genKeyPairKeyring(name, email, createdAt, defaultRsaLength());
-    }
+    public static GeneratedKeyPair genKeyPairKeyring(String name, String email, SupportedKeyGenerationProfile profile) {
+        SOP sop = new SOPImpl();
 
-    @SneakyThrows
-    public static byte[] genKeyPairKeyring(String name, String email, Instant createdAt, RsaLength length) {
-        var creationDate = createdAt == null ? new Date(0) : Date.from(createdAt);
+        // Generate an OpenPGP key
+        byte[] key = sop.generateKey()
+                .userId(name + " <" + email + ">")
+                .profile(profile.getProfile())
+                .generate()
+                .getBytes();
 
-        Function<Integer, KeySpec> keySpecFunction = bitMask -> {
-            var sp = SignatureSubpackets.createEmptySubpackets();
+        // Extract the certificate (public key)
+        byte[] cert = sop.extractCert()
+                .key(key)
+                .getBytes();
 
-            sp.setKeyFlags(false, KeyFlag.fromBitmask(bitMask).toArray(new KeyFlag[0]));
-
-            var kgas = PGPainless.getPolicy().getKeyGenerationAlgorithmSuite();
-
-            sp.setPreferredCompressionAlgorithms(false,
-                    kgas.getCompressionAlgorithms().stream()
-                            .filter(Predicate.not(Predicate.isEqual(CompressionAlgorithm.UNCOMPRESSED)))
-                            .toList());
-            sp.setPreferredHashAlgorithms(false,
-                    Stream.concat(kgas.getHashAlgorithms().stream(), Stream.of(HashAlgorithm.SHA1))
-                            .toList());
-            sp.setPreferredSymmetricKeyAlgorithms(false,
-                    Stream.concat(kgas.getSymmetricKeyAlgorithms().stream(), Stream.of(SymmetricKeyAlgorithm.TRIPLE_DES))
-                            .toList());
-
-            sp.setFeatures(false, Feature.MODIFICATION_DETECTION);
-
-            sp.setSignatureCreationTime(false, creationDate);
-            sp.setKeyExpirationTime(false, creationDate, null);
-
-            return new KeySpec(KeyType.RSA(length), sp, false, creationDate);
-        };
-
-        var secretKeyRing = PGPainless.buildKeyRing()
-                .setExpirationDate(null)
-                .setPrimaryKey(keySpecFunction.apply(0x2f))
-                .addSubkey(keySpecFunction.apply(0x2e))
-                .addUserId(name + " <" + email + ">")
-                .build();
-
-        var out = new ByteArrayOutputStream(16384);
-        try (var armored = ArmoredOutputStream.builder()
-                .clearHeaders()
-                .build(out)) {
-            secretKeyRing.encode(armored);
-        }
-
-        return out.toByteArray();
+        return new GeneratedKeyPair()
+                .setPublicKey(new String(key))
+                .setPrivateKey(new String(cert));
     }
 
     @SneakyThrows

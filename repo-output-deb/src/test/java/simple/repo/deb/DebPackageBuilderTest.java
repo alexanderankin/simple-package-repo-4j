@@ -27,7 +27,7 @@ class DebPackageBuilderTest {
     @ParameterizedTest
     @CsvSource({
             "amd64,  amd64",
-            "aarch64,arm64",
+            "arm64,  arm64",
             "arm,    armhf",
             "riscv64,riscv64",
     })
@@ -38,7 +38,7 @@ class DebPackageBuilderTest {
     @Test
     void fileName() {
         assertThat(debPackageBuilder.fileName(new PackageConfig().setMeta(new PackageConfig.PackageMeta()
-                .setArch(Arch.aarch64)
+                .setArch(Arch.arm64)
                 .setName("test-package")
                 .setVersion("0.0.1"))), is(equalTo("test-package_0.0.1_arm64.deb")));
     }

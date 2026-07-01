@@ -18,24 +18,25 @@ import java.util.stream.Collectors;
 @Getter
 @RequiredArgsConstructor
 public enum DebArch {
-    amd64("amd64"),
-    arm64("aarch64"),
+    amd64("amd64", Arch.amd64),
+    arm64("aarch64", Arch.arm64),
     /**
      * <code>sudo apt install qemu-system-arm</code>
      */
-    armhf("arm"),
+    armhf("arm", Arch.arm),
     /**
      * <code>sudo apt install qemu-system-misc</code>
      */
-    riscv64("riscv64"),
+    riscv64("riscv64", Arch.riscv64),
     ;
 
-    private static final Map<String, DebArch> MAP = Arrays.stream(values())
-            .collect(Collectors.toMap(DebArch::getJdkArchName, Function.identity()));
+    private static final Map<Arch, DebArch> MAP = Arrays.stream(values())
+            .collect(Collectors.toMap(DebArch::getArch, Function.identity()));
 
     private final String jdkArchName;
+    private final Arch arch;
 
     public static DebArch fromArch(Arch arch) {
-        return MAP.get(arch.name());
+        return MAP.get(arch);
     }
 }

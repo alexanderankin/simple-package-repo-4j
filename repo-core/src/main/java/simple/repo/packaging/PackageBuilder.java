@@ -11,5 +11,9 @@ public interface PackageBuilder {
 
     String fileName(PackageConfig packageConfig);
 
-    FileIntegrityWithContent buildPackage(PackageConfig  packageConfig);
+    default String indexFileName(PackageConfig packageConfig) {
+        return fileName(packageConfig) + ".spr4j-index.json";
+    }
+
+    FileIntegrityWithContent buildPackage(PackageConfig packageConfig);
 }

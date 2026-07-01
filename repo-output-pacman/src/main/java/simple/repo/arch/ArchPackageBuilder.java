@@ -7,6 +7,7 @@ import lombok.experimental.Accessors;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.apache.commons.compress.compressors.zstandard.ZstdCompressorOutputStream;
+import org.springframework.util.StringUtils;
 import simple.repo.Version;
 import simple.repo.model.*;
 import simple.repo.packaging.FileSpecReader;
@@ -21,6 +22,7 @@ import java.util.zip.GZIPOutputStream;
 @Data
 @Accessors(chain = true)
 public class ArchPackageBuilder implements PackageBuilder {
+    ArchCompression compression = ArchCompression.zst;
     FileSpecReader fileSpecReader = new FileSpecReader();
 
     @Override
@@ -35,7 +37,7 @@ public class ArchPackageBuilder implements PackageBuilder {
     public String archName(Arch arch) {
         return switch (arch) {
             case amd64 -> "x86_64";
-            case aarch64 -> "aarch64";
+            case arm64 -> "aarch64";
             // https://man.archlinux.org/man/PKGBUILD.5#OPTIONS_AND_DIRECTIVES
             // Packages that contain no architecture specific files should use arch=('any')
             case null -> "any";
@@ -45,9 +47,16 @@ public class ArchPackageBuilder implements PackageBuilder {
 
     @Override
     public String fileName(PackageConfig packageConfig) {
-        var m = packageConfig.getMeta();
-        var packageVersion = getPackageVersion(m);
-        return m.getName() + "-" + packageVersion + "-" + archName(m.getArch()) + ".pkg.tar.zst";
+        PackageConfig.PackageMeta meta = packageConfig.getMeta();
+        var stringBuilder = new StringBuilder(meta.getName());
+        stringBuilder.append('-').append(meta.getVersion());
+
+        if (StringUtils.hasText(meta.getReleaseVersion()))
+            stringBuilder.append('-').append(meta.getReleaseVersion());
+
+        stringBuilder.append('-').append(archName(meta.getArch()));
+        stringBuilder.append(".pkg.tar.").append(compression.name());
+        return stringBuilder.toString();
     }
 
     private String getPackageVersion(PackageConfig.PackageMeta m) {
@@ -389,5 +398,10 @@ public class ArchPackageBuilder implements PackageBuilder {
                 }
             }
         }
+    }
+
+    public enum ArchCompression {
+        // gz?
+        xz, zst,
     }
 }

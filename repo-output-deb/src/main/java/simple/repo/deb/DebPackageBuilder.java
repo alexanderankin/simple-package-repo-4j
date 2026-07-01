@@ -11,6 +11,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
@@ -46,7 +47,14 @@ public class DebPackageBuilder implements PackageBuilder {
     @Override
     public String fileName(PackageConfig packageConfig) {
         PackageConfig.PackageMeta meta = packageConfig.getMeta();
-        return meta.getName() + "_" + meta.getVersion() + "_" + archName(meta.getArch()) + ".deb";
+        var stringBuilder = new StringBuilder(meta.getName());
+        stringBuilder.append('_').append(meta.getVersion());
+
+        if (StringUtils.hasText(meta.getReleaseVersion()))
+            stringBuilder.append('-').append(meta.getReleaseVersion());
+
+        stringBuilder.append('_').append(archName(meta.getArch())).append(".deb");
+        return stringBuilder.toString();
     }
 
     @Override

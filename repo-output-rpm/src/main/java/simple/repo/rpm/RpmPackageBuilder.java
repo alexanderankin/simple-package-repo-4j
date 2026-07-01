@@ -6,6 +6,7 @@ import lombok.experimental.Accessors;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
@@ -52,11 +53,17 @@ public class RpmPackageBuilder implements PackageBuilder {
      * name-version-releaseversion.elversion.arch.rpm
      */
     @Override
-    public String fileName(PackageConfig config) {
-        var meta = config.getMeta();
-        var elVersion = meta.getElVersion();
-        var elVersionPart = elVersion != null ? "." + elVersion : "";
-        return meta.getName() + "-" + meta.getVersion() + elVersionPart + "." + archName(meta.getArch()) + ".rpm";
+    public String fileName(PackageConfig packageConfig) {
+        PackageConfig.PackageMeta meta = packageConfig.getMeta();
+        var stringBuilder = new StringBuilder(meta.getName());
+        stringBuilder.append('-').append(meta.getVersion());
+
+        if (StringUtils.hasText(meta.getReleaseVersion()))
+            stringBuilder.append('-').append(meta.getReleaseVersion());
+
+        stringBuilder.append('.').append(meta.getElVersion());
+        stringBuilder.append('.').append(archName(meta.getArch())).append(".rpm");
+        return stringBuilder.toString();
     }
 
     @Override

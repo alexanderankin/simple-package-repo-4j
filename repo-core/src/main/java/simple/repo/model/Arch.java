@@ -7,7 +7,7 @@ import java.util.stream.Collectors;
 
 public enum Arch {
     amd64,
-    aarch64,
+    arm64,
     /**
      * <code>sudo apt install qemu-system-arm</code>
      */

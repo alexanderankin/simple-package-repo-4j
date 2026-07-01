@@ -4,4 +4,8 @@ plugins {
 
 dependencies {
     implementation project(':repo-core')
+    annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
+    implementation 'info.picocli:picocli:4.7.6'
+    implementation 'org.pgpainless:pgpainless-core'
+    implementation 'org.pgpainless:pgpainless-sop'
 }

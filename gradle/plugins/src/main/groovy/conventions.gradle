@@ -71,7 +71,8 @@ dependencies {
         // Source: https://mvnrepository.com/artifact/commons-codec/commons-codec
         implementation 'commons-codec:commons-codec:1.22.0'
         // Source: https://mvnrepository.com/artifact/org.pgpainless/pgpainless-core
-        implementation 'org.pgpainless:pgpainless-core:1.7.5'
+        implementation 'org.pgpainless:pgpainless-core:2.0.3'
+        implementation 'org.pgpainless:pgpainless-sop:2.0.3'
         // Source: https://mvnrepository.com/artifact/com.github.luben/zstd-jni
         implementation 'com.github.luben:zstd-jni:1.5.7-8'
     }

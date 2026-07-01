@@ -103,22 +103,18 @@ public class PackageConfig {
         String version;
         @NotNull
         Arch arch;
-        String elVersion;
+        /**
+         * repository maintainer's version
+         */
         String releaseVersion;
+        /**
+         * red-hat variant identifier
+         */
+        String elVersion;
         /**
          * e.g. {@code CTO <cto@contoso.com>}
          */
         String releaser;
-
-        // @JsonIgnore
-        // public String getDebFilename() {
-        //     return name + "_" + version + "_" + arch + ".deb";
-        // }
-        //
-        // @JsonIgnore
-        // public String getIndexFilename() {
-        //     return name + "_" + version + "_" + arch + SD_INDEX_EXTENSION;
-        // }
     }
 
     @Dto
