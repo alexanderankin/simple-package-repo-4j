@@ -16,4 +16,8 @@ public interface PackageBuilder {
     }
 
     FileIntegrityWithContent buildPackage(PackageConfig packageConfig);
+
+    PackageConfig parseConfigFromPackage(byte[] downloadedPackage);
+
+    byte[] buildIndexFile(PackageConfig packageConfig);
 }

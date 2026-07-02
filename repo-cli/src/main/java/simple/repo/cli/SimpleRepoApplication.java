@@ -9,8 +9,12 @@ import lombok.extern.slf4j.Slf4j;
 import picocli.AutoComplete;
 import picocli.CommandLine;
 import simple.repo.cli.util.Exists;
+import simple.repo.deb.DebRepository;
+import simple.repo.io.RepoIo;
 import simple.repo.keys.KeysUtils;
 import simple.repo.keys.SupportedKeyGenerationProfile;
+import simple.repo.repository.Repository;
+import simple.repo.rpm.RpmRepository;
 
 import java.io.PrintWriter;
 import java.net.URI;
@@ -65,6 +69,7 @@ public class SimpleRepoApplication {
                 instance().validate("build args", this).buildPackage(this);
             }
         }
+
         @Data
         @Accessors(chain = true)
         @CommandLine.Command(name = "index", aliases = {"index-file"})
@@ -76,18 +81,27 @@ public class SimpleRepoApplication {
         }
     }
 
+    @Data
+    @Accessors(chain = true)
     @CommandLine.Command(name = "repo", subcommands = {
             Repo.IndexFile.class,
             Repo.Publish.class,
     })
     public static class Repo {
-        @CommandLine.Option(names = {"-r", "--repo"}, description = """
-                provide a way to find the repository
-                
-                s3://bucket/path/to/repository
-                file:///abs/path/to/repository
-                file:./relative-path-to-repository
-                """)
+        @CommandLine.Option(names = {"-t", "--type", "--repo-type"},
+                required = true,
+                description = "repository package type (e.g. deb, rpm, pacman)")
+        String repoType;
+
+        @CommandLine.Option(names = {"-r", "--repo"},
+                required = true,
+                description = """
+                        provide a way to find the repository
+                        
+                        s3://bucket/path/to/repository
+                        file:///abs/path/to/repository
+                        file:./relative-path-to-repository
+                        """)
         URI repoBase;
 
         @Data
@@ -104,15 +118,69 @@ public class SimpleRepoApplication {
             @Override
             public void run() {
                 var instance = instance();
+                RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
+                Repository<?> repository = instance.loadRepo(repo.getRepoType());
+                doRun(repoIo, repository);
+            }
+
+            <I extends RepoIo.RepoLocation, R> void doRun(RepoIo<I> repoIo, Repository<R> repository) {
                 for (String eachPackage : packages) {
-                    instance.indexExistingRepoFile(eachPackage);
+                    // validate inputs
+                    var packagePathParts = eachPackage.split("/");
+                    var coordinate = repository.coordinate(packagePathParts);
+                    // rebuild path + download
+                    var pathToPackage = repository.pathTo(coordinate);
+                    var downloadedPackage = repoIo.downloadPackage(pathToPackage);
+                    // build index file
+                    var packageBuilder = repository.packageBuilder();
+                    var packageConfig = packageBuilder.parseConfigFromPackage(downloadedPackage);
+                    var indexFileName = packageBuilder.indexFileName(packageConfig);
+                    var indexFileContent = packageBuilder.buildIndexFile(packageConfig);
+                    // upload index file
+                    var pathToPackageIndexFile = pathToPackage.neighbor(indexFileName);
+                    repoIo.uploadPackage(pathToPackageIndexFile, indexFileContent);
                 }
             }
         }
 
-        @CommandLine.Command(name = "publish")
-        public static class Publish {
+        @CommandLine.Command(name = "publish", description = "scan pool, update")
+        public static class Publish implements Runnable {
+            @Valid
+            @CommandLine.ParentCommand
+            Repo repo;
 
+            @Override
+            public void run() {
+                var instance = instance();
+                RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
+                Repository<?> repository = instance.loadRepo(repo.getRepoType());
+                doRun(repoIo, repository);
+            }
+
+            <I extends RepoIo.RepoLocation, R> void doRun(RepoIo<I> repoIo, Repository<R> repository) {
+                repository.scanIndexes(repoIo);
+                switch (repository) {
+                    case DebRepository debRepository -> {
+                    }
+                    case RpmRepository rpmRepository -> {
+                    }
+                    case null, default -> throw new UnsupportedOperationException();
+                }
+            }
+        }
+
+        public static class Add implements Runnable {
+            @Valid
+            @CommandLine.ParentCommand
+            Repo repo;
+
+            @CommandLine.Option(names = {"-a", "--add", "--package-to-add"}, description = "path to packages to add")
+            List<String> packagesToAdd;
+
+            @Override
+            public void run() {
+
+            }
         }
     }
 

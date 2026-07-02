@@ -52,6 +52,7 @@ dependencies {
     implementation platform('org.springframework.boot:spring-boot-dependencies:4.0.6')
     annotationProcessor platform('org.springframework.boot:spring-boot-dependencies:4.0.6')
     implementation platform('org.springframework.cloud:spring-cloud-dependencies:2025.1.1')
+    implementation platform('io.awspring.cloud:spring-cloud-aws-dependencies:4.0.2')
 
     annotationProcessor 'org.projectlombok:lombok'
     compileOnly 'org.projectlombok:lombok'
@@ -67,6 +68,8 @@ dependencies {
     constraints {
         // Source: https://mvnrepository.com/artifact/org.apache.commons/commons-compress
         implementation 'org.apache.commons:commons-compress:1.27.1' // 1.28.0
+        // Source: https://mvnrepository.com/artifact/org.apache.commons/commons-collections4
+        implementation 'org.apache.commons:commons-collections4:4.5.0'
         // this is in spring boot dependencies now?
         // Source: https://mvnrepository.com/artifact/commons-codec/commons-codec
         implementation 'commons-codec:commons-codec:1.22.0'

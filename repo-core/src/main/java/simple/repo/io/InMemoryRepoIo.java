@@ -6,6 +6,8 @@ import lombok.experimental.Accessors;
 import org.springframework.web.util.UriComponentsBuilder;
 import simple.repo.repository.Repository;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Map;
 
 @Data
@@ -32,6 +34,15 @@ public class InMemoryRepoIo implements RepoIo<InMemoryRepoIo.InMemoryIoLocation>
     @Override
     public void uploadPackage(Repository.RepositoryPath repositoryPath, byte[] content) {
         contents.put(repositoryPath.joinParts(), content);
+    }
+
+    @Override
+    public Iterable<Repository.RepositoryPath> iterFiles(String path) {
+        return new ArrayList<>(contents.keySet()).stream()
+                .filter(key -> key.startsWith(path))
+                .sorted()
+                .map(key -> new Repository.RepositoryPath().setParts(Arrays.asList(key.split("/"))))
+                .toList();
     }
 
     @Override

@@ -1,39 +1,69 @@
 package simple.repo.repository;
 
 import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
 import lombok.experimental.Accessors;
-import org.jspecify.annotations.NonNull;
+import org.apache.commons.collections4.IteratorUtils;
+import simple.repo.io.RepoIo;
+import simple.repo.model.PackageConfig;
+import simple.repo.packaging.PackageBuilder;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
-@Data
-@Accessors(chain = true)
 public abstract class Repository<Coordinate> {
-    String root;
-
-    static RepositoryPath path(String root, String... parts) {
-        return new RepositoryPath().setRoot(root).setParts(Arrays.asList(parts));
+    protected static RepositoryPath path(String... parts) {
+        return new RepositoryPath().setParts(Arrays.asList(parts));
     }
+
+    public abstract PackageBuilder packageBuilder();
+
+    public Coordinate coordinate(String... values) {
+        return coordinate(Arrays.asList(values));
+    }
+
+    /**
+     * for now this is packages only??
+     */
+    public abstract Coordinate coordinate(List<String> values);
 
     public abstract RepositoryPath pathTo(Coordinate coordinate);
 
     public abstract RepositoryPath indexOf(Coordinate coordinate);
 
+    public <L extends RepoIo.RepoLocation> Iterable<PackageConfig> scanIndexes(RepoIo<L> repoIo) {
+        return () -> IteratorUtils.transformedIterator(
+                IteratorUtils.filteredIterator(
+                        iteratePoolPaths(repoIo),
+                        f -> f.joinParts().endsWith(".index.json")
+                ),
+                input -> packageBuilder().parseConfigFromPackage(repoIo.downloadPackage(input))
+        );
+    }
+
+    protected abstract <L extends RepoIo.RepoLocation> Iterator<RepositoryPath> iteratePoolPaths(RepoIo<L> repoIo);
+
     @Data
     @Accessors(chain = true)
     public static class RepositoryPath {
-        String root;
         List<String> parts;
+
+        public static RepositoryPath of(List<String> parts) {
+            return new RepositoryPath().setParts(parts);
+        }
+
+        public Path asLocalPath() {
+            return parts.isEmpty() ? Path.of("") : Path.of(parts.getFirst(), parts.subList(1, parts.size()).toArray(new String[0]));
+        }
 
         /**
          *
          * @return root joined by '/' with all non-empty paths also joined with '/'
          */
         public String joinParts() {
-            var sb = new StringBuilder(root);
+            var sb = new StringBuilder();
             if (!parts.isEmpty()) {
                 for (var part : parts) {
                     if (!part.isEmpty()) {
@@ -43,72 +73,27 @@ public abstract class Repository<Coordinate> {
             }
             return sb.toString();
         }
-    }
 
-    @ToString(callSuper = true)
-    @EqualsAndHashCode(callSuper = true)
-    @Data
-    public static class DebRepo extends Repository<DebRepo.DebRepoCoord> {
-        @Override
-        public RepositoryPath pathTo(DebRepoCoord coord) {
-            return path(root, "pool", coord.codename, coord.name);
-        }
-
-        public RepositoryPath indexOf(DebRepoCoord coord) {
-            return path(root, "dists", coord.codename, coord.component, "binary-" + coord.arch, "Packages.gz");
-        }
-
-        @Data
-        @Accessors(chain = true)
-        public static class DebRepoCoord {
-            String codename;
-            String component = "main";
-            String arch = "amd64";
-            String name;
+        public RepositoryPath neighbor(String neighborName) {
+            var parts = new ArrayList<>(this.parts);
+            parts.set(parts.size() - 1, neighborName);
+            return new RepositoryPath()
+                    .setParts(parts);
         }
     }
 
-    @ToString(callSuper = true)
-    @EqualsAndHashCode(callSuper = true)
-    @Data
-    public static class RpmRepo extends Repository<RpmRepo.RpmRepoCoord> {
-        /**
-         * blank will skip and treat as if to colocate rpm files with the {@code repodata} folder
-         *
-         * @see RepositoryPath#joinParts()
-         */
-        @NonNull
-        String poolPath = "pool";
-
-        @Override
-        public RepositoryPath pathTo(RpmRepoCoord coord) {
-            return path(root, coord.version, coord.arch, poolPath, coord.name);
-        }
-
-        public RepositoryPath indexOf(RpmRepoCoord coord) {
-            return path(root, coord.version, coord.arch, "repodata", "repomd.xml");
-        }
-
-        @Data
-        @Accessors(chain = true)
-        public static class RpmRepoCoord {
-            String version;
-            String arch;
-            String name;
-        }
-    }
-
+    /*
     @ToString(callSuper = true)
     @EqualsAndHashCode(callSuper = true)
     @Data
     public static class ArchRepo extends Repository<ArchRepo.ArchRepoCoord> {
         @Override
         public RepositoryPath pathTo(ArchRepoCoord coord) {
-            return path(root, coord.arch, coord.repo, coord.name);
+            return path(coord.arch, coord.repo, coord.name);
         }
 
         public RepositoryPath indexOf(ArchRepoCoord coord) {
-            return path(root, coord.arch, coord.repo, coord.repo + ".db");
+            return path(coord.arch, coord.repo, coord.repo + ".db");
         }
 
         @Data
@@ -126,11 +111,11 @@ public abstract class Repository<Coordinate> {
     public static class AlpineRepo extends Repository<AlpineRepo.AlpineRepoCoord> {
         @Override
         public RepositoryPath pathTo(AlpineRepoCoord coord) {
-            return path(root, coord.branch, coord.repository, coord.arch, coord.name);
+            return path(coord.branch, coord.repository, coord.arch, coord.name);
         }
 
         public RepositoryPath indexOf(AlpineRepoCoord coord) {
-            return path(root, coord.branch, coord.repository, coord.arch, "APKINDEX.tar.gz");
+            return path(coord.branch, coord.repository, coord.arch, "APKINDEX.tar.gz");
         }
 
         @Data
@@ -150,8 +135,8 @@ public abstract class Repository<Coordinate> {
         @Override
         public RepositoryPath pathTo(HomebrewRepoCoord coord) {
             return switch (coord.kind) {
-                case FORMULA -> path(root, "Formula", coord.name + ".rb");
-                case CASK -> path(root, "Casks", coord.name + ".rb");
+                case FORMULA -> path("Formula", coord.name + ".rb");
+                case CASK -> path("Casks", coord.name + ".rb");
             };
         }
 
@@ -180,7 +165,6 @@ public abstract class Repository<Coordinate> {
         @Override
         public RepositoryPath pathTo(WingetRepoCoord coord) {
             return path(
-                    root,
                     "manifests",
                     coord.publisher.substring(0, 1).toLowerCase(),
                     coord.publisher,
@@ -223,4 +207,6 @@ public abstract class Repository<Coordinate> {
             }
         }
     }
+    */
+
 }

@@ -64,6 +64,16 @@ public class DebPackageBuilder implements PackageBuilder {
         return FileIntegrityWithContent.of(arArchive, debFilename);
     }
 
+    @Override
+    public PackageConfig parseConfigFromPackage(byte[] downloadedPackage) {
+        return null;
+    }
+
+    @Override
+    public byte[] buildIndexFile(PackageConfig packageConfig) {
+        return new byte[0];
+    }
+
     @SneakyThrows
     public byte[] buildDebToArchive(PackageConfig config) {
         byte[] dataTarGz = createTarGz(
