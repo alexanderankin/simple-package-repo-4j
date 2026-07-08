@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * @see simple.repo.model.PackageConfig.TarFileSpec
+ * @see PackageConfig.PkgFileSpec
  */
 @Data
 @Accessors(chain = true)
@@ -24,18 +24,18 @@ public class FileSpecReader {
     RestClient restClient = RestClient.create();
 
     @SneakyThrows
-    public List<FileIntegrityWithContent> readContents(List<PackageConfig.TarFileSpec> allFiles) {
+    public List<FileIntegrityWithContent> readContents(List<PackageConfig.PkgFileSpec> allFiles) {
         return allFiles.stream().map(f -> FileIntegrityWithContent.of(readContent(f), f.getPath())).toList();
     }
 
     @SneakyThrows
-    public byte[] readContent(PackageConfig.TarFileSpec f) {
+    public byte[] readContent(PackageConfig.PkgFileSpec f) {
         return switch (f) {
-            case PackageConfig.TarFileSpec.BinaryTarFileSpec bin -> bin.getContent();
-            case PackageConfig.TarFileSpec.TextTarFileSpec text -> text.getContent().getBytes(StandardCharsets.UTF_8);
-            case PackageConfig.TarFileSpec.FileTarFileSpec fs ->
+            case PackageConfig.PkgFileSpec.BinaryPkgFileSpec bin -> bin.getContent();
+            case PackageConfig.PkgFileSpec.TextPkgFileSpec text -> text.getContent().getBytes(StandardCharsets.UTF_8);
+            case PackageConfig.PkgFileSpec.FilePkgFileSpec fs ->
                     Files.readAllBytes(current.resolve(fs.getSourcePath()));
-            case PackageConfig.TarFileSpec.UrlTarFileSpec fs -> Objects.requireNonNull(
+            case PackageConfig.PkgFileSpec.UrlPkgFileSpec fs -> Objects.requireNonNull(
                     restClient.get()
                             .uri(fs.getUrl())
                             .headers(h -> {

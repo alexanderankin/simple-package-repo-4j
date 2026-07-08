@@ -1,0 +1,16 @@
+meta:
+  arch: arm64
+  name: example-deb
+  version: 0.0.1
+control:
+  maintainer: maintainer
+  description: description
+files:
+  controlFiles: []
+  dataFiles:
+    - type: text
+      path: /opt/example-deb/bin/example-deb
+      mode: 0x755
+      content: |
+        #!/usr/bin/env bash
+        echo 'hello world'

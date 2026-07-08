@@ -40,8 +40,8 @@ public class DebParsePackageConfig {
             throw new IllegalArgumentException("Invalid .deb: missing control.tar.*");
         }
 
-        var controlFiles = new ArrayList<PackageConfig.TarFileSpec>();
-        var dataFiles = new ArrayList<PackageConfig.TarFileSpec>();
+        var controlFiles = new ArrayList<PackageConfig.PkgFileSpec>();
+        var dataFiles = new ArrayList<PackageConfig.PkgFileSpec>();
 
         String controlText = null;
 
@@ -59,7 +59,7 @@ public class DebParsePackageConfig {
                     continue;
                 }
 
-                controlFiles.add(new PackageConfig.TarFileSpec.FileTarFileSpec()
+                controlFiles.add(new PackageConfig.PkgFileSpec.FilePkgFileSpec()
                         // .setContent(new String(tar.readAllBytes(), StandardCharsets.UTF_8))
                         .setMode(entry.getMode())
                         .setPath(entry.getName()));
@@ -80,7 +80,7 @@ public class DebParsePackageConfig {
 
                     var debPath = "/" + normalizeTarPath(entry.getName());
 
-                    dataFiles.add(new PackageConfig.TarFileSpec.FileTarFileSpec()
+                    dataFiles.add(new PackageConfig.PkgFileSpec.FilePkgFileSpec()
                             .setPath(debPath)
                             .setMode(entry.getMode()));
                 }

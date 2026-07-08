@@ -1,6 +1,9 @@
 package simple.repo.model;
 
-import com.fasterxml.jackson.annotation.*;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -29,18 +32,21 @@ public class PackageConfig {
     @NotNull
     @Valid
     PackageConfig.FileSpec files;
+    @Valid
+    Settings settings;
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
     @JsonSubTypes({
-            @JsonSubTypes.Type(value = TarFileSpec.TextTarFileSpec.class, name = "text"),
-            @JsonSubTypes.Type(value = TarFileSpec.BinaryTarFileSpec.class, name = "binary"),
-            @JsonSubTypes.Type(value = TarFileSpec.FileTarFileSpec.class, name = "file"),
-            @JsonSubTypes.Type(value = TarFileSpec.UrlTarFileSpec.class, name = "url"),
+            @JsonSubTypes.Type(value = PkgFileSpec.TextPkgFileSpec.class, name = "text"),
+            @JsonSubTypes.Type(value = PkgFileSpec.BinaryPkgFileSpec.class, name = "binary"),
+            @JsonSubTypes.Type(value = PkgFileSpec.FilePkgFileSpec.class, name = "file"),
+            @JsonSubTypes.Type(value = PkgFileSpec.UrlPkgFileSpec.class, name = "url"),
     })
     @Dto
     @Data
     @Accessors(chain = true)
-    public static sealed abstract class TarFileSpec {
+    public static sealed abstract class PkgFileSpec {
+        @NotBlank
         String path;
         Integer mode;
 
@@ -50,7 +56,7 @@ public class PackageConfig {
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
-        public static final class TextTarFileSpec extends TarFileSpec {
+        public static final class TextPkgFileSpec extends PkgFileSpec {
             @NotBlank
             String content;
         }
@@ -61,7 +67,7 @@ public class PackageConfig {
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
-        public static final class BinaryTarFileSpec extends TarFileSpec {
+        public static final class BinaryPkgFileSpec extends PkgFileSpec {
             @NotEmpty
             byte[] content;
         }
@@ -72,7 +78,7 @@ public class PackageConfig {
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
-        public static final class FileTarFileSpec extends TarFileSpec {
+        public static final class FilePkgFileSpec extends PkgFileSpec {
             @NotBlank
             String sourcePath;
         }
@@ -83,7 +89,7 @@ public class PackageConfig {
         @Data
         @Accessors(chain = true)
         @JsonIgnoreProperties(ignoreUnknown = true)
-        public static final class UrlTarFileSpec extends TarFileSpec {
+        public static final class UrlPkgFileSpec extends PkgFileSpec {
             @NotNull
             URI url;
             String bearerToken;
@@ -165,7 +171,19 @@ public class PackageConfig {
     @Accessors(chain = true)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class FileSpec {
-        List<@Valid TarFileSpec> controlFiles;
-        List<@Valid TarFileSpec> dataFiles;
+        List<@Valid PkgFileSpec> controlFiles;
+        List<@Valid PkgFileSpec> dataFiles;
+    }
+
+    @Data
+    @Accessors(chain = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Settings {
+        public static int DEFAULT_DIRECTORY_MODE_DEFAULT = 0x755;
+
+        /**
+         * used when need to create a directory inside the package to contain a file
+         */
+        Integer defaultDirMode;
     }
 }

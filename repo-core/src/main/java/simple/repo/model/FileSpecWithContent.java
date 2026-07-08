@@ -5,8 +5,8 @@ public record FileSpecWithContent(
         Integer mode,
         FileIntegrityWithContent content
 ) {
-    public FileSpecWithContent(PackageConfig.TarFileSpec tarFileSpec, FileIntegrityWithContent fileIntegrityWithContent) {
-        this(tarFileSpec.getPath(), tarFileSpec.getMode(), fileIntegrityWithContent);
+    public FileSpecWithContent(PackageConfig.PkgFileSpec pkgFileSpec, FileIntegrityWithContent fileIntegrityWithContent) {
+        this(pkgFileSpec.getPath(), pkgFileSpec.getMode(), fileIntegrityWithContent);
     }
 
     public FileSpecWithContent(FileIntegrityWithContent fileIntegrityWithContent, Integer mode) {

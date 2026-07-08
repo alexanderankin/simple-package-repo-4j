@@ -6,9 +6,12 @@ import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import lombok.SneakyThrows;
 import simple.repo.io.RepoIo;
+import simple.repo.model.PackageConfig;
 import simple.repo.packaging.PackageBuilder;
 import simple.repo.repository.Repository;
+import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.dataformat.yaml.YAMLMapper;
 
 import java.net.URI;
 import java.nio.file.Files;
@@ -18,6 +21,7 @@ import java.util.stream.Collectors;
 
 public class SimpleRepoCli {
     JsonMapper jsonMapper;
+    YAMLMapper yamlMapper;
     ValidatorFactory validatorFactory;
     Validator validator;
     List<RepoIo<?>> loadedRepoIos;
@@ -25,6 +29,7 @@ public class SimpleRepoCli {
 
     SimpleRepoCli() {
         jsonMapper = JsonMapper.builder().findAndAddModules().build();
+        yamlMapper = YAMLMapper.builder().findAndAddModules().build();
         validatorFactory = Validation.buildDefaultValidatorFactory();
         validator = validatorFactory.getValidator();
     }
@@ -32,14 +37,48 @@ public class SimpleRepoCli {
     public SimpleRepoCli validate(String message, Object o, Class<?>... classes) {
         var constraintViolations = validator.validate(o, classes);
         if (!constraintViolations.isEmpty()) {
+            if (message == null)
+                throw new ConstraintViolationException(constraintViolations);
             throw new ConstraintViolationException(message, constraintViolations);
         }
         return this;
     }
 
     // make public version not tied to cli
-    void buildPackage(SimpleRepoApplication.Package.Build build) {
-        throw new UnsupportedOperationException();
+    @SneakyThrows
+    public Path buildPackage(SimpleRepoApplication.Package.Build build) {
+        PackageConfig packageConfig;
+        try {
+            packageConfig = jsonMapper.readValue(build.getConfigFile(), PackageConfig.class);
+        } catch (StreamReadException readException) {
+            try {
+                packageConfig = yamlMapper.readValue(build.getConfigFile(), PackageConfig.class);
+            } catch (Exception yamlEx) {
+                var e = new IllegalStateException("failed to read config file", yamlEx);
+                e.addSuppressed(readException);
+                throw e;
+            }
+        }
+        validate(null, packageConfig);
+
+        var packageBuilder = loadedRepos().get(build.getRepo().getRepoType()).packageBuilder();
+        var pkgContent = packageBuilder.buildPackage(packageConfig).getContent();
+        var fileName = packageBuilder.fileName(packageConfig);
+
+        Path outputFile;
+        var buildOutput = build.getBuildOutput();
+        var buildOutputDir = buildOutput.getOutputDir();
+        var buildOutputFile = buildOutput.getOutputFile();
+        if (buildOutputDir != null) {
+            outputFile = buildOutputDir.resolve(fileName);
+        } else if (buildOutputFile != null) {
+            outputFile = buildOutputFile;
+        } else {
+            throw new IllegalStateException();
+        }
+
+        Files.write(outputFile, pkgContent);
+        return outputFile;
     }
 
     @SuppressWarnings("unchecked")

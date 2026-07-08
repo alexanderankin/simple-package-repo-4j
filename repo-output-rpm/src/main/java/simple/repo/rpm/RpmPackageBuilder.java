@@ -117,14 +117,14 @@ public class RpmPackageBuilder implements PackageBuilder {
         try (var gzip = new GZIPOutputStream(raw);
              var cpio = new CpioArchiveOutputStream(gzip)) {
 
-            for (PackageConfig.TarFileSpec file : config.getFiles().getDataFiles()) {
+            for (PackageConfig.PkgFileSpec file : config.getFiles().getDataFiles()) {
                 byte[] content = switch (file) {
-                    case PackageConfig.TarFileSpec.BinaryTarFileSpec bin -> bin.getContent();
-                    case PackageConfig.TarFileSpec.TextTarFileSpec text ->
+                    case PackageConfig.PkgFileSpec.BinaryPkgFileSpec bin -> bin.getContent();
+                    case PackageConfig.PkgFileSpec.TextPkgFileSpec text ->
                             text.getContent().getBytes(StandardCharsets.UTF_8);
-                    case PackageConfig.TarFileSpec.FileTarFileSpec fs ->
+                    case PackageConfig.PkgFileSpec.FilePkgFileSpec fs ->
                             Files.readAllBytes(current.resolve(fs.getSourcePath()));
-                    case PackageConfig.TarFileSpec.UrlTarFileSpec fs -> Objects.requireNonNull(
+                    case PackageConfig.PkgFileSpec.UrlPkgFileSpec fs -> Objects.requireNonNull(
                             restClient.get()
                                     .uri(fs.getUrl())
                                     .headers(h -> {
@@ -308,14 +308,14 @@ public class RpmPackageBuilder implements PackageBuilder {
     //     try (GZIPOutputStream gzip = new GZIPOutputStream(raw)) {
     //         CpioWriter cpio = new CpioWriter(gzip);
     //
-    //         for (PackageConfig.TarFileSpec file : config.getFiles().getDataFiles()) {
+    //         for (PackageConfig.PkgFileSpec file : config.getFiles().getDataFiles()) {
     //             byte[] content = switch (file) {
-    //                 case PackageConfig.TarFileSpec.BinaryTarFileSpec bin -> bin.getContent();
-    //                 case PackageConfig.TarFileSpec.TextTarFileSpec text ->
+    //                 case PackageConfig.PkgFileSpec.BinaryPkgFileSpec bin -> bin.getContent();
+    //                 case PackageConfig.PkgFileSpec.TextPkgFileSpec text ->
     //                         text.getContent().getBytes(StandardCharsets.UTF_8);
-    //                 case PackageConfig.TarFileSpec.FileTarFileSpec fs ->
+    //                 case PackageConfig.PkgFileSpec.FilePkgFileSpec fs ->
     //                         Files.readAllBytes(current.resolve(fs.getSourcePath()));
-    //                 case PackageConfig.TarFileSpec.UrlTarFileSpec fs -> Objects.requireNonNull(
+    //                 case PackageConfig.PkgFileSpec.UrlPkgFileSpec fs -> Objects.requireNonNull(
     //                         restClient.get()
     //                                 .uri(fs.getUrl())
     //                                 .headers(h -> {

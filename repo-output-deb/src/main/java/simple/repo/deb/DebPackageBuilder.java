@@ -67,7 +67,8 @@ public class DebPackageBuilder implements PackageBuilder {
     public byte[] buildDebToArchive(PackageConfig config) {
         byte[] dataTarGz = createTarGz(
                 Optional.ofNullable(config.getFiles().getDataFiles()).orElseGet(List::of),
-                List.of()
+                List.of(),
+                config.getSettings()
         );
 
         int installedSize = 0;
@@ -82,10 +83,11 @@ public class DebPackageBuilder implements PackageBuilder {
 
         byte[] controlTarGz = createTarGz(
                 Optional.ofNullable(config.getFiles().getControlFiles()).orElseGet(List::of),
-                List.of(new PackageConfig.TarFileSpec.TextTarFileSpec()
+                List.of(new PackageConfig.PkgFileSpec.TextPkgFileSpec()
                         .setContent(renderControl(config))
                         .setPath("control")
-                        .setMode(null))
+                        .setMode(null)),
+                config.getSettings()
         );
 
         return createArArchive(List.of(
@@ -123,16 +125,21 @@ public class DebPackageBuilder implements PackageBuilder {
     }
 
     @SneakyThrows
-    private byte[] createTarGz(List<PackageConfig.TarFileSpec> files, List<PackageConfig.TarFileSpec> extra) {
+    private byte[] createTarGz(List<PackageConfig.PkgFileSpec> files,
+                               List<PackageConfig.PkgFileSpec> extra,
+                               PackageConfig.Settings settings) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (TarArchiveOutputStream tarOut = new TarArchiveOutputStream(new GZIPOutputStream(out))) {
             tarOut.setLongFileMode(TarArchiveOutputStream.LONGFILE_GNU);
 
-            List<PackageConfig.TarFileSpec> allFiles = new ArrayList<>(files);
+            List<PackageConfig.PkgFileSpec> allFiles = new ArrayList<>(files);
             allFiles.addAll(extra);
 
-            for (PackageConfig.TarFileSpec f : allFiles) {
+            Set<String> seenDirs = new HashSet<>();
+
+            for (PackageConfig.PkgFileSpec f : allFiles) {
                 byte[] content = fileSpecReader.readContent(f);
+                createDirs(seenDirs, tarOut, f.getPath(), settings);
                 TarArchiveEntry entry = new TarArchiveEntry(f.getPath());
                 entry.setSize(content.length);
 
@@ -146,6 +153,34 @@ public class DebPackageBuilder implements PackageBuilder {
             }
         }
         return out.toByteArray();
+    }
+
+    @SneakyThrows
+    private void createDirs(Set<String> seenDirs, TarArchiveOutputStream tarOut, String path, PackageConfig.Settings settings) {
+        int directoryMode;
+        if (settings != null && settings.getDefaultDirMode() != null) {
+            directoryMode = settings.getDefaultDirMode();
+        } else {
+            directoryMode = PackageConfig.Settings.DEFAULT_DIRECTORY_MODE_DEFAULT;
+        }
+
+        String normalized = path.startsWith("/") ? path.substring(1) : path;
+
+        int slashIndex = normalized.indexOf('/');
+
+        while (slashIndex >= 0) {
+            String dirPath = normalized.substring(0, slashIndex + 1);
+
+            if (seenDirs.add(dirPath)) {
+                TarArchiveEntry dirEntry = new TarArchiveEntry(dirPath);
+                dirEntry.setMode(directoryMode);
+
+                tarOut.putArchiveEntry(dirEntry);
+                tarOut.closeArchiveEntry();
+            }
+
+            slashIndex = normalized.indexOf('/', slashIndex + 1);
+        }
     }
 
     /**

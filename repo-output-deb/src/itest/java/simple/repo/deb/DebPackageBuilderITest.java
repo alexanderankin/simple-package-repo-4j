@@ -45,7 +45,7 @@ public class DebPackageBuilderITest {
                                 .setMaintainer("test_simpleInstall")
                                 .setDescription("test_simpleInstall"))
                         .setFiles(new FileSpec()
-                                .setDataFiles(List.of(new PackageConfig.TarFileSpec.TextTarFileSpec()
+                                .setDataFiles(List.of(new PackageConfig.PkgFileSpec.TextPkgFileSpec()
                                         .setContent("#!/usr/bin/env bash\necho test_simpleInstall")
                                         .setMode(0x755)
                                         .setPath("/usr/bin/test_simpleInstall")))))

@@ -43,7 +43,7 @@ class DebRepoBuilderITest {
                                 .setMaintainer(prefix)
                                 .setDescription(prefix))
                         .setFiles(new PackageConfig.FileSpec()
-                                .setDataFiles(List.of(new PackageConfig.TarFileSpec.TextTarFileSpec()
+                                .setDataFiles(List.of(new PackageConfig.PkgFileSpec.TextPkgFileSpec()
                                         .setContent("#!/usr/bin/env bash\necho " + prefix)
                                         .setMode(0x755)
                                         .setPath("/usr/bin/" + prefix)))))

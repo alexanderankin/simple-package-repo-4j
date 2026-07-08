@@ -80,9 +80,24 @@ public class SimpleRepoApplication {
             @CommandLine.Option(names = {"-c", "--config"})
             Path configFile;
 
+            @CommandLine.ArgGroup(multiplicity = "1")
+            BuildOutput buildOutput;
+
             @Override
             public void run() {
-                instance().validate("build args", this).buildPackage(this);
+                var result = instance().validate("build args", this).buildPackage(this);
+                System.out.println(result);
+            }
+
+            @Data
+            @Accessors(chain = true)
+            public static class BuildOutput {
+                @CommandLine.Option(names = {"-o", "--output"})
+                Path outputDir;
+
+                @CommandLine.Option(names = {"-f", "--file"})
+                Path outputFile;
+
             }
         }
 

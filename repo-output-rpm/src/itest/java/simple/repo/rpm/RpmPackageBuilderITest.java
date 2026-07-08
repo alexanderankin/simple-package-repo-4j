@@ -10,7 +10,7 @@ import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
 import simple.repo.model.PackageConfig.FileSpec;
 import simple.repo.model.PackageConfig.PackageMeta;
-import simple.repo.model.PackageConfig.TarFileSpec.BinaryTarFileSpec;
+import simple.repo.model.PackageConfig.PkgFileSpec.BinaryPkgFileSpec;
 
 import java.util.List;
 
@@ -33,7 +33,7 @@ public class RpmPackageBuilderITest {
                 new PackageConfig()
                         .setMeta(new PackageMeta().setName("testpkg").setVersion("1.0.0").setArch(Arch.current()))
                         .setFiles(new FileSpec().setDataFiles(List.of(
-                                new BinaryTarFileSpec().setContent("hello world\n".getBytes()).setPath("/usr/share/test/hello.txt").setMode(0x644))))
+                                new BinaryPkgFileSpec().setContent("hello world\n".getBytes()).setPath("/usr/share/test/hello.txt").setMode(0x644))))
         );
 
         try (GenericContainer<?> genericContainer = new GenericContainer<>("rockylinux/rockylinux:10")) {
@@ -56,7 +56,7 @@ public class RpmPackageBuilderITest {
                 new PackageConfig()
                         .setMeta(new PackageMeta().setName("testpkg").setVersion("1.0.0").setArch(Arch.current()))
                         .setFiles(new FileSpec().setDataFiles(List.of(
-                                new BinaryTarFileSpec().setContent("hello world\n".getBytes()).setPath("/usr/share/test/hello.txt").setMode(0x644))))
+                                new BinaryPkgFileSpec().setContent("hello world\n".getBytes()).setPath("/usr/share/test/hello.txt").setMode(0x644))))
         );
 
         try (GenericContainer<?> genericContainer = new GenericContainer<>("rockylinux/rockylinux:10")) {
