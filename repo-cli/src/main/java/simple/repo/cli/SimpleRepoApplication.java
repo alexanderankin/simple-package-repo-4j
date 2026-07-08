@@ -1,5 +1,6 @@
 package simple.repo.cli;
 
+import info.ankin.projects.picocli.logback.verbosity.LogbackVerbosityMixin;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -35,10 +36,14 @@ import java.util.List;
                 SimpleRepoApplication.Keys.class,
                 SimpleRepoApplication.Package.class,
                 SimpleRepoApplication.Repo.class,
+                SimpleRepoApplication.Plugins.class,
                 AutoComplete.GenerateCompletion.class,
         }
 )
 public class SimpleRepoApplication {
+    @CommandLine.Mixin
+    LogbackVerbosityMixin logbackVerbosityMixin;
+
     static void main(String[] args) {
         var commandLine = new CommandLine(SimpleRepoApplication.class)
                 .setCaseInsensitiveEnumValuesAllowed(true);
@@ -50,15 +55,26 @@ public class SimpleRepoApplication {
         return new SimpleRepoCli();
     }
 
+    @Data
+    @Accessors(chain = true)
     @CommandLine.Command(name = "package", subcommands = {
             Package.Build.class,
             Package.IndexFile.class,
     })
     public static class Package {
+        @CommandLine.Option(names = {"-t", "--type", "--repo-type"},
+                required = true,
+                description = "repository package type (e.g. deb, rpm, pacman)")
+        String repoType;
+
         @Data
         @Accessors(chain = true)
         @CommandLine.Command(name = "build")
         public static class Build implements Runnable {
+            @Valid
+            @CommandLine.ParentCommand
+            Package repo;
+
             @NotNull
             @Exists
             @CommandLine.Option(names = {"-c", "--config"})
@@ -73,11 +89,20 @@ public class SimpleRepoApplication {
         @Data
         @Accessors(chain = true)
         @CommandLine.Command(name = "index", aliases = {"index-file"})
-        public static class IndexFile {
+        public static class IndexFile implements Runnable {
+            @Valid
+            @CommandLine.ParentCommand
+            Package repo;
+
             @NotNull
-            @Exists
+            @Valid
             @CommandLine.Parameters(arity = "1..")
-            List<Path> packages;
+            List<@Exists Path> packages;
+
+            @Override
+            public void run() {
+                instance().validate("index subcommand args", this).indexFiles(repo.getRepoType(), packages);
+            }
         }
     }
 
@@ -85,7 +110,8 @@ public class SimpleRepoApplication {
     @Accessors(chain = true)
     @CommandLine.Command(name = "repo", subcommands = {
             Repo.IndexFile.class,
-            Repo.Publish.class,
+            Repo.Scan.class,
+            Repo.Add.class,
     })
     public static class Repo {
         @CommandLine.Option(names = {"-t", "--type", "--repo-type"},
@@ -120,10 +146,10 @@ public class SimpleRepoApplication {
                 var instance = instance();
                 RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
                 Repository<?> repository = instance.loadRepo(repo.getRepoType());
-                doRun(repoIo, repository);
+                doRun(instance, repoIo, repository);
             }
 
-            <I extends RepoIo.RepoLocation, R> void doRun(RepoIo<I> repoIo, Repository<R> repository) {
+            <I extends RepoIo.RepoLocation, R> void doRun(SimpleRepoCli instance, RepoIo<I> repoIo, Repository<R> repository) {
                 for (String eachPackage : packages) {
                     // validate inputs
                     var packagePathParts = eachPackage.split("/");
@@ -135,16 +161,16 @@ public class SimpleRepoApplication {
                     var packageBuilder = repository.packageBuilder();
                     var packageConfig = packageBuilder.parseConfigFromPackage(downloadedPackage);
                     var indexFileName = packageBuilder.indexFileName(packageConfig);
-                    var indexFileContent = packageBuilder.buildIndexFile(packageConfig);
+                    var indexFileContent = packageBuilder.buildIndexFile(downloadedPackage, packageConfig);
                     // upload index file
                     var pathToPackageIndexFile = pathToPackage.neighbor(indexFileName);
-                    repoIo.uploadPackage(pathToPackageIndexFile, indexFileContent);
+                    repoIo.uploadPackage(pathToPackageIndexFile, instance.jsonMapper.writeValueAsBytes(indexFileContent));
                 }
             }
         }
 
-        @CommandLine.Command(name = "publish", description = "scan pool, update")
-        public static class Publish implements Runnable {
+        @CommandLine.Command(name = "scan", description = "scan pool, update")
+        public static class Scan implements Runnable {
             @Valid
             @CommandLine.ParentCommand
             Repo repo;
@@ -169,6 +195,7 @@ public class SimpleRepoApplication {
             }
         }
 
+        @CommandLine.Command(name = "add", description = "add packages to a repository")
         public static class Add implements Runnable {
             @Valid
             @CommandLine.ParentCommand
@@ -246,6 +273,30 @@ public class SimpleRepoApplication {
 
         @CommandLine.Command(name = "verify")
         public static class Verify {
+        }
+    }
+
+    @CommandLine.Command(name = "plugins", subcommands = {
+            Plugins.PluginsList.class,
+    })
+    public static class Plugins {
+        @CommandLine.Command(name = "list")
+        public static class PluginsList {
+            @CommandLine.Command(name = "io")
+            void io() {
+                SimpleRepoCli instance = instance();
+                var repoIos = instance.loadedRepoIos();
+                var repoIosNames = repoIos.stream().map(Object::getClass).map(Class::getSimpleName).toList();
+                System.out.println(instance.jsonMapper.writeValueAsString(repoIosNames));
+            }
+
+            @CommandLine.Command(name = "output")
+            void output() {
+                var instance = instance();
+                var repos = instance.loadedRepos();
+                var reposNames = repos.keySet().stream().sorted().toList();
+                System.out.println(instance.jsonMapper.writeValueAsString(reposNames));
+            }
         }
     }
 }

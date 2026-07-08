@@ -5,9 +5,11 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 import org.apache.commons.lang3.StringUtils;
 import simple.repo.io.RepoIo;
+import simple.repo.model.PackageConfig;
 import simple.repo.packaging.PackageBuilder;
 import simple.repo.repository.Repository;
 
+import java.util.Iterator;
 import java.util.List;
 
 @EqualsAndHashCode(callSuper = false)
@@ -60,7 +62,12 @@ public class RpmRepository extends Repository<RpmRepository.RpmRepoCoord> {
     }
 
     @Override
-    public <L extends RepoIo.RepoLocation> void scanIndexes(RepoIo<L> repoIo) {
+    public <L extends RepoIo.RepoLocation> Iterable<PackageConfig> scanIndexes(RepoIo<L> repoIo) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    protected <L extends RepoIo.RepoLocation> Iterator<RepositoryPath> iteratePoolPaths(RepoIo<L> repoIo) {
         throw new UnsupportedOperationException();
     }
 

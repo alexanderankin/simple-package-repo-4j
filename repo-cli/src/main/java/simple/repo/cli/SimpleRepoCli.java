@@ -4,12 +4,15 @@ import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
+import lombok.SneakyThrows;
 import simple.repo.io.RepoIo;
 import simple.repo.packaging.PackageBuilder;
 import simple.repo.repository.Repository;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -72,7 +75,7 @@ public class SimpleRepoCli {
         throw new UnsupportedOperationException("no repository could parse type '" + type + "'; found types: " + types);
     }
 
-    private List<RepoIo<?>> loadedRepoIos() {
+    public List<RepoIo<?>> loadedRepoIos() {
         if (loadedRepoIos != null) return loadedRepoIos;
         synchronized (this) {
             if (loadedRepoIos != null) return loadedRepoIos;
@@ -82,7 +85,7 @@ public class SimpleRepoCli {
         }
     }
 
-    private Map<String, Repository<?>> loadedRepos() {
+    public Map<String, Repository<?>> loadedRepos() {
         if (loadedRepos != null) return loadedRepos;
         synchronized (this) {
             if (loadedRepos != null) return loadedRepos;
@@ -99,4 +102,19 @@ public class SimpleRepoCli {
             return this.loadedRepos = loadedRepos;
         }
     }
+
+    @SneakyThrows
+    public void indexFiles(String repoType, List<Path> packages) {
+        Repository<?> repository = loadedRepos().get(repoType);
+        if (repository == null)
+            throw new IllegalArgumentException("unknown repo type: " + repoType);
+        var packageBuilder = repository.packageBuilder();
+        for (var eachPackage : packages) {
+            var indexFileDto = packageBuilder.parseConfigToIndexFile(eachPackage);
+            var indexFileName = packageBuilder.indexFileName(indexFileDto.getPackageConfig());
+            var indexFilePath = eachPackage.getParent().resolve(indexFileName);
+            Files.write(indexFilePath, jsonMapper.writeValueAsBytes(indexFileDto));
+        }
+    }
+
 }

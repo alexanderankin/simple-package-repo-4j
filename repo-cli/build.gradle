@@ -1,6 +1,9 @@
 plugins {
     id 'conventions'
+    id 'application'
 }
+
+application.mainClass = 'simple.repo.cli.SimpleRepoApplication'
 
 dependencies {
     implementation project(':repo-core')
@@ -11,4 +14,5 @@ dependencies {
     implementation 'info.picocli:picocli:4.7.6'
     implementation 'org.pgpainless:pgpainless-core'
     implementation 'org.pgpainless:pgpainless-sop'
+    implementation 'info.ankin.projects:picocli-logback-level-mixin:0.0.2'
 }

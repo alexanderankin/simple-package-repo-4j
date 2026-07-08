@@ -9,19 +9,13 @@ import org.apache.commons.compress.archivers.ar.ArArchiveOutputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
-import org.springframework.util.Assert;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
-import simple.repo.model.Arch;
-import simple.repo.model.FileIntegrityWithContent;
-import simple.repo.model.PackageConfig;
+import simple.repo.model.*;
 import simple.repo.packaging.FileSpecReader;
 import simple.repo.packaging.PackageBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -66,12 +60,7 @@ public class DebPackageBuilder implements PackageBuilder {
 
     @Override
     public PackageConfig parseConfigFromPackage(byte[] downloadedPackage) {
-        return null;
-    }
-
-    @Override
-    public byte[] buildIndexFile(PackageConfig packageConfig) {
-        return new byte[0];
+        return DebParsePackageConfig.INSTANCE.parseConfigFromPackage(downloadedPackage);
     }
 
     @SneakyThrows

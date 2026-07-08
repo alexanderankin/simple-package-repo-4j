@@ -78,6 +78,11 @@ public class RpmPackageBuilder implements PackageBuilder {
         return FileIntegrityWithContent.of(out.toByteArray(), fileName(config));
     }
 
+    @Override
+    public PackageConfig parseConfigFromPackage(byte[] downloadedPackage) {
+        throw new UnsupportedOperationException();
+    }
+
     private void writeSignatureHeader(ByteArrayOutputStream out, byte[] payload) {
         new Header()
                 // .withEntry(RpmTags.SignatureTag.HEADERSIGNATURES, RpmTags.RpmTagType.BIN, 0, 0, new byte[0])

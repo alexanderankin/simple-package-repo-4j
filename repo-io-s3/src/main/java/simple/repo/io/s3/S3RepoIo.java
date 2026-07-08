@@ -24,18 +24,20 @@ public class S3RepoIo implements RepoIo<S3RepoIo.S3Location> {
     @ToString.Exclude
     S3Client s3Client;
 
-    public S3RepoIo() {
-        s3Client = S3Client.create();
+    private S3Client s3Client() {
+        if (s3Client == null)
+            s3Client = S3Client.create();
+        return s3Client;
     }
 
     @Override
     public byte[] downloadPackage(Repository.RepositoryPath repositoryPath) {
-        return s3Client.getObjectAsBytes(location.get(repositoryPath.joinParts())).asByteArrayUnsafe();
+        return s3Client().getObjectAsBytes(location.get(repositoryPath.joinParts())).asByteArrayUnsafe();
     }
 
     @Override
     public void uploadPackage(Repository.RepositoryPath repositoryPath, byte[] content) {
-        s3Client.putObject(location.put(repositoryPath.joinParts()).build(), RequestBody.fromBytes(content));
+        s3Client().putObject(location.put(repositoryPath.joinParts()).build(), RequestBody.fromBytes(content));
     }
 
     @Override
@@ -102,7 +104,7 @@ public class S3RepoIo implements RepoIo<S3RepoIo.S3Location> {
         }
 
         static Iterable<Repository.RepositoryPath> forPath(S3RepoIo s3RepoIo, String path) {
-            var initialResponse = s3RepoIo.s3Client.listObjectsV2(s3RepoIo.location.list(path).build());
+            var initialResponse = s3RepoIo.s3Client().listObjectsV2(s3RepoIo.location.list(path).build());
 
             if (initialResponse.contents().isEmpty())
                 return List.of();
@@ -123,7 +125,7 @@ public class S3RepoIo implements RepoIo<S3RepoIo.S3Location> {
             if (nextToken == null)
                 throw new NoSuchElementException();
 
-            var nextResponse = s3RepoIo.s3Client.listObjectsV2(s3RepoIo.location.list(initialPath).continuationToken(nextToken).build());
+            var nextResponse = s3RepoIo.s3Client().listObjectsV2(s3RepoIo.location.list(initialPath).continuationToken(nextToken).build());
             nextToken = nextResponse.nextContinuationToken();
             lastIter = nextResponse.contents().iterator();
 
