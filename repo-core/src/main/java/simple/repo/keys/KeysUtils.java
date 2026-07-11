@@ -1,6 +1,7 @@
 package simple.repo.keys;
 
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.bcpg.ArmoredOutputStream;
 import org.bouncycastle.bcpg.BCPGOutputStream;
 import org.bouncycastle.bcpg.HashAlgorithmTags;
@@ -11,6 +12,7 @@ import org.pgpainless.key.protection.UnlockSecretKey;
 import org.pgpainless.sop.SOPImpl;
 import org.pgpainless.util.Passphrase;
 import sop.SOP;
+import sop.exception.SOPGPException;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -20,27 +22,34 @@ import java.time.Instant;
 import java.util.*;
 import java.util.function.Predicate;
 
+@Slf4j
 public class KeysUtils {
+    static final SOP SOP = new SOPImpl();
 
     @SneakyThrows
     public static GeneratedKeyPair genKeyPairKeyring(String name, String email, SupportedKeyGenerationProfile profile) {
-        SOP sop = new SOPImpl();
+
+        String uid = name != null && email != null
+                ? name + " <" + email + ">"
+                : name;
 
         // Generate an OpenPGP key
-        byte[] key = sop.generateKey()
-                .userId(name + " <" + email + ">")
+        var generateKey = SOP.generateKey();
+        if (uid != null)
+            generateKey = generateKey.userId(uid);
+        byte[] key = generateKey
                 .profile(profile.getProfile())
                 .generate()
                 .getBytes();
 
         // Extract the certificate (public key)
-        byte[] cert = sop.extractCert()
+        byte[] cert = SOP.extractCert()
                 .key(key)
                 .getBytes();
 
         return new GeneratedKeyPair()
-                .setPublicKey(new String(key))
-                .setPrivateKey(new String(cert));
+                .setPublicKey(new String(cert))
+                .setPrivateKey(new String(key));
     }
 
     @SneakyThrows
@@ -198,5 +207,136 @@ public class KeysUtils {
         }
 
         return out.toByteArray();
+    }
+
+    /*
+    private static void readPkr(byte[] publicKeyRing) throws IOException {
+        Objects.requireNonNull(publicKeyRing, "publicKeyRing must not be null");
+        var pkr = KeyRingReader.readPublicKeyRing(new ByteArrayInputStream(publicKeyRing));
+        Objects.requireNonNull(pkr, () -> "could not readPublicKeyRing from publicKeyRing of length " + publicKeyRing.length);
+    }
+    */
+
+    @SneakyThrows
+    public static boolean verifySignatureInline(byte[] publicKeyRing, byte[] data) {
+        return VerificationUtils.verifySignatureInline(publicKeyRing, data);
+    }
+
+    @SneakyThrows
+    public static boolean verifySignatureDetached(byte[] publicKeyRing, byte[] signature, byte[] data) {
+        try {
+            return !SOP.detachedVerify().cert(publicKeyRing).signatures(signature).data(data).isEmpty();
+        } catch (SOPGPException s) {
+            log.debug("failed detached verification: {}", s.getMessage());
+            log.trace("failed with detached verification error message", s);
+            return false;
+        }
+    }
+
+    // here be ai code
+    private static class VerificationUtils {
+        private static final byte[] SIGNATURE_MARKER =
+                "-----BEGIN PGP SIGNATURE-----".getBytes(StandardCharsets.US_ASCII);
+
+        /**
+         * Verify a clear-signed OpenPGP message.
+         * <p>
+         * First attempts normal RFC-compatible verification. If that fails, retries
+         * using this project's legacy clear-sign behavior, which hashes one additional
+         * CRLF before the signature armor.
+         */
+        @SneakyThrows
+        public static boolean verifySignatureInline(byte[] publicKeyRing, byte[] signedMessage) {
+            Objects.requireNonNull(publicKeyRing, "publicKeyRing must not be null");
+            Objects.requireNonNull(signedMessage, "signedMessage must not be null");
+
+            /*
+            // this needs its own code path if it is going to happen
+            if (verifySignatureInlineStandard(publicKeyRing, signedMessage)) {
+                return true;
+            }
+            */
+
+            byte[] compatibilityMessage = exposeLegacyTrailingCrlf(signedMessage);
+
+            if (compatibilityMessage == null) {
+                log.debug("failed inline verification: signature armor marker not found");
+                return false;
+            }
+
+            boolean verified = verifySignatureInlineStandard(publicKeyRing, compatibilityMessage);
+
+            if (verified) {
+                log.trace("inline signature verified using legacy extra-CRLF compatibility");
+            }
+
+            return verified;
+        }
+
+        @SneakyThrows
+        private static boolean verifySignatureInlineStandard(
+                byte[] publicKeyRing,
+                byte[] signedMessage
+        ) {
+            try {
+                var result = SOP.inlineVerify()
+                        .cert(publicKeyRing)
+                        .data(signedMessage)
+                        .toByteArrayAndResult()
+                        .getResult();
+
+                return !result.isEmpty();
+            } catch (SOPGPException e) {
+                log.debug("inline verification attempt failed: {}", e.getMessage());
+                log.trace("inline verification attempt failed", e);
+                return false;
+            }
+        }
+
+        /**
+         * Inserts one blank cleartext line immediately before the signature armor.
+         * <p>
+         * The newline directly preceding BEGIN PGP SIGNATURE is the cleartext/armor
+         * separator. Adding another CRLF causes the standard verifier to include one
+         * additional terminal CRLF in the canonical-text signature input.
+         */
+        private static byte[] exposeLegacyTrailingCrlf(byte[] signedMessage) {
+            int markerOffset = indexOf(signedMessage, SIGNATURE_MARKER);
+
+            if (markerOffset < 0) {
+                return null;
+            }
+
+            /*
+             * The marker should already be at the beginning of a line. Insert CRLF
+             * immediately before it, regardless of whether the existing document uses
+             * LF or CRLF around the armor boundary.
+             */
+            var output = new ByteArrayOutputStream(signedMessage.length + 2);
+            output.write(signedMessage, 0, markerOffset);
+            output.write('\r');
+            output.write('\n');
+            output.write(
+                    signedMessage,
+                    markerOffset,
+                    signedMessage.length - markerOffset
+            );
+
+            return output.toByteArray();
+        }
+
+        private static int indexOf(byte[] data, byte[] target) {
+            outer:
+            for (int i = 0; i <= data.length - target.length; i++) {
+                for (int j = 0; j < target.length; j++) {
+                    if (data[i + j] != target[j]) {
+                        continue outer;
+                    }
+                }
+                return i;
+            }
+
+            return -1;
+        }
     }
 }

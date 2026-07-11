@@ -2,14 +2,12 @@ package simple.repo.keys;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.ToString;
 import sop.Profile;
 
 import static org.pgpainless.sop.GenerateKeyImpl.*;
 
 @RequiredArgsConstructor
 @Getter
-@ToString
 public enum SupportedKeyGenerationProfile {
     // recommended
     CURVE25519(CURVE25519_PROFILE),
