@@ -13,8 +13,12 @@ import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
 import simple.repo.packaging.FileSpecReader;
 import simple.repo.packaging.PackageBuilder;
+import simple.repo.rpm.RpmTags.RpmTag;
+import simple.repo.rpm.RpmTags.RpmTagType;
 import simple.repo.rpm.model.Lead;
+import simple.repo.rpm.model.RpmHashAlgo;
 import simple.repo.rpm.model.Signature;
+import simple.repo.rpm.model.Signature.SignatureEntry;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -155,50 +159,126 @@ public class RpmPackageBuilder implements PackageBuilder {
         var description = control == null || !StringUtils.hasText(control.getDescription())
                 ? meta.getName()
                 : control.getDescription();
-        var entries = new ArrayList<Signature.SignatureEntry>();
+        var entries = new ArrayList<SignatureEntry>();
 
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_HEADERI18NTABLE, List.of("C")));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_NAME, meta.getName()));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_VERSION, meta.getVersion()));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_RELEASE, release(meta)));
-        entries.add(i18nString(RpmTags.RpmTag.RPMTAG_SUMMARY, description.lines().findFirst().orElse(meta.getName())));
-        entries.add(i18nString(RpmTags.RpmTag.RPMTAG_DESCRIPTION, description));
-        entries.add(int32(RpmTags.RpmTag.RPMTAG_BUILDTIME, Math.toIntExact(buildTime)));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_BUILDHOST, "localhost"));
-        entries.add(int32(RpmTags.RpmTag.RPMTAG_SIZE, files.stream().mapToInt(f -> f.content().length).sum()));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_LICENSE, "unknown"));
-        entries.add(i18nString(RpmTags.RpmTag.RPMTAG_GROUP,
-                control == null ? "Applications/System" : control.getSection()));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_HEADERI18NTABLE)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", List.of("C")).getBytes(StandardCharsets.UTF_8))));
+
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_NAME)
+                .setType(RpmTagType.RPM_STRING_TYPE).
+                setContent(ByteBuffer.wrap(meta.getName().getBytes(StandardCharsets.UTF_8))));
+
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_VERSION)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap(meta.getVersion().getBytes(StandardCharsets.UTF_8))));
+
+        String release = release(meta);
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_RELEASE)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap(release.getBytes(StandardCharsets.UTF_8))));
+
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_SUMMARY)
+                .setType(RpmTagType.RPM_I18NSTRING_TYPE)
+                .setContent(ByteBuffer.wrap(description.lines().findFirst().orElse(meta.getName()).getBytes(StandardCharsets.UTF_8))));
+
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_DESCRIPTION)
+                .setType(RpmTagType.RPM_I18NSTRING_TYPE)
+                .setContent(ByteBuffer.wrap(description.getBytes(StandardCharsets.UTF_8))));
+
+        entries.add(int32(RpmTag.RPMTAG_BUILDTIME, Math.toIntExact(buildTime)));
+
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_BUILDHOST)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap("localhost".getBytes(StandardCharsets.UTF_8))));
+
+        entries.add(int32(RpmTag.RPMTAG_SIZE, files.stream().mapToInt(f -> f.content().length).sum()));
+
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_LICENSE)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                // todo make better?
+                .setContent(ByteBuffer.wrap("unknown".getBytes(StandardCharsets.UTF_8))));
+
+        String group = control == null ? "Applications/System" : control.getSection();
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_GROUP)
+                .setType(RpmTagType.RPM_I18NSTRING_TYPE)
+                .setContent(ByteBuffer.wrap(group.getBytes(StandardCharsets.UTF_8))));
+
         if (control != null && StringUtils.hasText(control.getHomepage())) {
-            entries.add(string(RpmTags.RpmTag.RPMTAG_URL, control.getHomepage()));
+            entries.add(new SignatureEntry()
+                    .setTag(RpmTag.RPMTAG_URL)
+                    .setType(RpmTagType.RPM_STRING_TYPE)
+                    .setContent(ByteBuffer.wrap(control.getHomepage().getBytes(StandardCharsets.UTF_8))));
         }
         var packager = StringUtils.hasText(meta.getReleaser())
                 ? meta.getReleaser()
                 : control == null ? null : control.getMaintainer();
         if (StringUtils.hasText(packager)) {
-            entries.add(string(RpmTags.RpmTag.RPMTAG_PACKAGER, packager));
+            entries.add(new SignatureEntry()
+                    .setTag(RpmTag.RPMTAG_PACKAGER)
+                    .setType(RpmTagType.RPM_STRING_TYPE)
+                    .setContent(ByteBuffer.wrap(packager.getBytes(StandardCharsets.UTF_8))));
         }
-        entries.add(string(RpmTags.RpmTag.RPMTAG_OS, "linux"));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_ARCH, archName(meta.getArch())));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_RPMVERSION, Version.VERSION));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_OS)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap("linux".getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_ARCH)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap(archName(meta.getArch()).getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_RPMVERSION)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap(Version.VERSION.getBytes(StandardCharsets.UTF_8))));
 
         addFileEntries(entries, files, buildTime);
 
-        entries.add(int32(RpmTags.RpmTag.RPMTAG_ARCHIVESIZE, payload.uncompressed().length));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_PAYLOADFORMAT, "cpio"));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_PAYLOADCOMPRESSOR, "gzip"));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_PAYLOADFLAGS, "9"));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_PLATFORM, archName(meta.getArch()) + "-linux"));
-        entries.add(int32(RpmTags.RpmTag.RPMTAG_FILEDIGESTALGO, 8));
-        entries.add(string(RpmTags.RpmTag.RPMTAG_ENCODING, "utf-8"));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_PAYLOADSHA256, List.of(DigestUtils.sha256Hex(payload.compressed()))));
-        entries.add(int32(RpmTags.RpmTag.RPMTAG_PAYLOADSHA256ALGO, 8));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_PAYLOADSHA256ALT, List.of(DigestUtils.sha256Hex(payload.uncompressed()))));
+        entries.add(int32(RpmTag.RPMTAG_ARCHIVESIZE, payload.uncompressed().length));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_PAYLOADFORMAT)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap("cpio".getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_PAYLOADCOMPRESSOR)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap("gzip".getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_PAYLOADFLAGS)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap("9".getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_PLATFORM)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap((archName(meta.getArch()) + "-linux").getBytes(StandardCharsets.UTF_8))));
+        entries.add(int32(RpmTag.RPMTAG_FILEDIGESTALGO, RpmHashAlgo.RPM_HASH_SHA256.getTagValue()));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_ENCODING)
+                .setType(RpmTagType.RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap("utf-8".getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_PAYLOADSHA256)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", List.of(DigestUtils.sha256Hex(payload.compressed()))).getBytes(StandardCharsets.UTF_8))));
+        entries.add(int32(RpmTag.RPMTAG_PAYLOADSHA256ALGO, 8));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_PAYLOADSHA256ALT)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", List.of(DigestUtils.sha256Hex(payload.uncompressed()))).getBytes(StandardCharsets.UTF_8))));
 
-        return buildSection(entries, RpmTags.RpmTag.RPMTAG_HEADERIMMUTABLE);
+        return buildSection(entries, RpmTag.RPMTAG_HEADERIMMUTABLE);
     }
 
-    private void addFileEntries(List<Signature.SignatureEntry> entries, List<PackageFile> files, long buildTime) {
+    private void addFileEntries(List<SignatureEntry> entries, List<PackageFile> files, long buildTime) {
         if (files.isEmpty()) {
             return;
         }
@@ -207,25 +287,50 @@ public class RpmPackageBuilder implements PackageBuilder {
             directories.computeIfAbsent(file.directory(), ignored -> directories.size());
         }
 
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILESIZES, files.stream().map(f -> f.content().length).toList()));
-        entries.add(int16s(RpmTags.RpmTag.RPMTAG_FILEMODES, files.stream().map(f -> 0100000 | fileMode(f.spec())).toList()));
-        entries.add(int16s(RpmTags.RpmTag.RPMTAG_FILERDEVS, Collections.nCopies(files.size(), 0)));
-        Integer value = Math.toIntExact(buildTime);
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEMTIMES, Collections.nCopies(files.size(), value)));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILEDIGESTS, files.stream().map(f -> DigestUtils.sha256Hex(f.content())).toList()));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILELINKTOS, Collections.nCopies(files.size(), "")));
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEFLAGS, Collections.nCopies(files.size(), 0)));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILEUSERNAME, Collections.nCopies(files.size(), "root")));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILEGROUPNAME, Collections.nCopies(files.size(), "root")));
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEVERIFYFLAGS, Collections.nCopies(files.size(), -1)));
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEDEVICES, Collections.nCopies(files.size(), 1)));
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEINODES,
+        entries.add(int32s(RpmTag.RPMTAG_FILESIZES, files.stream().map(f -> f.content().length).toList()));
+        entries.add(int16s(RpmTag.RPMTAG_FILEMODES, files.stream().map(f -> 0100000 | fileMode(f.spec())).toList()));
+        entries.add(int16s(RpmTag.RPMTAG_FILERDEVS, Collections.nCopies(files.size(), 0)));
+        entries.add(int32s(RpmTag.RPMTAG_FILEMTIMES, Collections.nCopies(files.size(), Math.toIntExact(buildTime))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_FILEDIGESTS)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0",
+                        files.stream()
+                                .map(PackageFile::content)
+                                .map(DigestUtils::sha256Hex)
+                                .toList()
+                ).getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_FILELINKTOS)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", Collections.nCopies(files.size(), "")).getBytes(StandardCharsets.UTF_8))));
+        entries.add(int32s(RpmTag.RPMTAG_FILEFLAGS, Collections.nCopies(files.size(), 0)));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_FILEUSERNAME)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", Collections.nCopies(files.size(), "root")).getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_FILEGROUPNAME)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", Collections.nCopies(files.size(), "root")).getBytes(StandardCharsets.UTF_8))));
+        entries.add(int32s(RpmTag.RPMTAG_FILEVERIFYFLAGS, Collections.nCopies(files.size(), -1)));
+        entries.add(int32s(RpmTag.RPMTAG_FILEDEVICES, Collections.nCopies(files.size(), 1)));
+        entries.add(int32s(RpmTag.RPMTAG_FILEINODES,
                 java.util.stream.IntStream.rangeClosed(1, files.size()).boxed().toList()));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILELANGS, Collections.nCopies(files.size(), "")));
-        entries.add(int32s(RpmTags.RpmTag.RPMTAG_DIRINDEXES,
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_FILELANGS)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", Collections.nCopies(files.size(), "")).getBytes(StandardCharsets.UTF_8))));
+        entries.add(int32s(RpmTag.RPMTAG_DIRINDEXES,
                 files.stream().map(f -> directories.get(f.directory())).toList()));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_BASENAMES, files.stream().map(PackageFile::basename).toList()));
-        entries.add(strings(RpmTags.RpmTag.RPMTAG_DIRNAMES, new ArrayList<>(directories.keySet())));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_BASENAMES)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", files.stream().map(PackageFile::basename).toList()).getBytes(StandardCharsets.UTF_8))));
+        entries.add(new SignatureEntry()
+                .setTag(RpmTag.RPMTAG_DIRNAMES)
+                .setType(RpmTagType.RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap(String.join("\0", new ArrayList<String>(directories.keySet())).getBytes(StandardCharsets.UTF_8))));
     }
 
     private byte[] buildSignature(byte[] header, Payload payload) {
@@ -233,17 +338,21 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .put(header)
                 .put(payload.compressed())
                 .array();
-        var entries = new ArrayList<Signature.SignatureEntry>();
-        entries.add(string(RpmTags.SignatureTag.SHA1, DigestUtils.sha1Hex(header)));
-        entries.add(string(RpmTags.SignatureTag.SHA256, DigestUtils.sha256Hex(header)));
+        var entries = new ArrayList<SignatureEntry>();
+        String value3 = DigestUtils.sha1Hex(header);
+        entries.add(new SignatureEntry().setTag(RpmTags.SignatureTag.SHA1).setType(RpmTagType.RPM_STRING_TYPE).setContent(ByteBuffer.wrap(value3.getBytes(StandardCharsets.UTF_8))));
+        String value2 = DigestUtils.sha256Hex(header);
+        entries.add(new SignatureEntry().setTag(RpmTags.SignatureTag.SHA256).setType(RpmTagType.RPM_STRING_TYPE).setContent(ByteBuffer.wrap(value2.getBytes(StandardCharsets.UTF_8))));
         entries.add(int32(RpmTags.SignatureTag.SIZE, headerAndPayload.length));
-        entries.add(binary(RpmTags.SignatureTag.MD5, DigestUtils.md5(headerAndPayload)));
+        byte[] value1 = DigestUtils.md5(headerAndPayload);
+        entries.add(new SignatureEntry().setTag(RpmTags.SignatureTag.MD5).setType(RpmTagType.RPM_BIN_TYPE).setContent(ByteBuffer.wrap(value1)));
         entries.add(int32(RpmTags.SignatureTag.PAYLOADSIZE, payload.uncompressed().length));
-        entries.add(binary(RpmTags.SignatureTag.RESERVEDSPACE, new byte[4096]));
+        byte[] value = new byte[4096];
+        entries.add(new SignatureEntry().setTag(RpmTags.SignatureTag.RESERVEDSPACE).setType(RpmTagType.RPM_BIN_TYPE).setContent(ByteBuffer.wrap(value)));
         return buildSection(entries, RpmTags.SignatureTag.HEADERSIGNATURES);
     }
 
-    private byte[] buildSection(List<Signature.SignatureEntry> entries, RpmTags regionTag) {
+    private byte[] buildSection(List<SignatureEntry> entries, RpmTags regionTag) {
         var regionEntryCount = entries.size() + 1;
         var trailer = ByteBuffer.allocate(16)
                 .putInt(regionTag.getTagValue())
@@ -251,7 +360,7 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .putInt(-Math.multiplyExact(regionEntryCount, 16))
                 .putInt(16)
                 .array();
-        entries.add(binary(regionTag, trailer));
+        entries.add(new SignatureEntry().setTag(regionTag).setType(RpmTagType.RPM_BIN_TYPE).setContent(ByteBuffer.wrap(trailer)));
 
         var data = new Signature().setEntries(entries);
         var index = data.toIndex();
@@ -262,43 +371,23 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .array();
     }
 
-    private Signature.SignatureEntry string(RpmTags tag, String value) {
-        return entry(tag, RPM_STRING_TYPE, value.getBytes(StandardCharsets.UTF_8));
+    private SignatureEntry int32(RpmTags tag, int value) {
+        byte[] value1 = ByteBuffer.allocate(4).putInt(value).array();
+        return new SignatureEntry().setTag(tag).setType(RPM_INT32_TYPE).setContent(ByteBuffer.wrap(value1));
     }
 
-    private Signature.SignatureEntry i18nString(RpmTags tag, String value) {
-        return entry(tag, RPM_I18NSTRING_TYPE, value.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private Signature.SignatureEntry strings(RpmTags tag, List<String> values) {
-        return entry(tag, RPM_STRING_ARRAY_TYPE, String.join("\0", values).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private Signature.SignatureEntry int32(RpmTags tag, int value) {
-        return entry(tag, RPM_INT32_TYPE, ByteBuffer.allocate(4).putInt(value).array());
-    }
-
-    private Signature.SignatureEntry int32s(RpmTags tag, List<Integer> values) {
+    private SignatureEntry int32s(RpmTags tag, List<Integer> values) {
         var buffer = ByteBuffer.allocate(Math.multiplyExact(values.size(), 4));
         values.forEach(buffer::putInt);
-        return entry(tag, RPM_INT32_TYPE, buffer.array());
+        byte[] value = buffer.array();
+        return new SignatureEntry().setTag(tag).setType(RPM_INT32_TYPE).setContent(ByteBuffer.wrap(value));
     }
 
-    private Signature.SignatureEntry int16s(RpmTags tag, List<Integer> values) {
+    private SignatureEntry int16s(RpmTags tag, List<Integer> values) {
         var buffer = ByteBuffer.allocate(Math.multiplyExact(values.size(), 2));
         values.forEach(value -> buffer.putShort((short) (value & 0xffff)));
-        return entry(tag, RPM_INT16_TYPE, buffer.array());
-    }
-
-    private Signature.SignatureEntry binary(RpmTags tag, byte[] value) {
-        return entry(tag, RPM_BIN_TYPE, value);
-    }
-
-    private Signature.SignatureEntry entry(RpmTags tag, RpmTags.RpmTagType type, byte[] value) {
-        return new Signature.SignatureEntry()
-                .setTag(tag)
-                .setType(type)
-                .setContent(ByteBuffer.wrap(value));
+        byte[] value = buffer.array();
+        return new SignatureEntry().setTag(tag).setType(RPM_INT16_TYPE).setContent(ByteBuffer.wrap(value));
     }
 
     @SuppressWarnings("OctalInteger")

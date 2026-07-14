@@ -64,9 +64,9 @@ public class SimpleRepoApplication {
             Package.IndexFile.class,
     })
     public static class Package {
-        @CommandLine.Option(names = {"-t", "--type", "--repo-type"},
+        @CommandLine.Option(names = {"-t", "--type", "--output-type"},
                 required = true,
-                description = "repository package type (e.g. deb, rpm, pacman)")
+                description = "output package type (e.g. deb, rpm, pacman)")
         String repoType;
 
         @Data
