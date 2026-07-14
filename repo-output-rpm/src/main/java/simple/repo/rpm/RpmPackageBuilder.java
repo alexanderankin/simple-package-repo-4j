@@ -3,9 +3,11 @@ package simple.repo.rpm;
 import lombok.Data;
 import lombok.SneakyThrows;
 import lombok.experimental.Accessors;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;
 import org.springframework.util.StringUtils;
+import simple.repo.Version;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
@@ -15,9 +17,13 @@ import simple.repo.rpm.model.Lead;
 import simple.repo.rpm.model.Signature;
 
 import java.io.ByteArrayOutputStream;
-import java.util.ArrayList;
-import java.util.Objects;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.*;
 import java.util.zip.GZIPOutputStream;
+
+import static simple.repo.rpm.RpmTags.RpmTagType.*;
 
 /**
  * @see <a href=http://ftp.rpm.org/max-rpm/s1-rpm-file-format-rpm-file-format.html>rpm.org: Appendix A. Format of the RPM File</a>
@@ -35,9 +41,14 @@ public class RpmPackageBuilder implements PackageBuilder {
 
     @Override
     public String archName(Arch arch) {
-        if (arch == null)
-            return "noarch";
-        return Objects.requireNonNull(RpmArch.fromArch(arch), () -> "Unknown arch: " + arch).name();
+        return switch (arch) {
+            case amd64 -> RpmArch.x86_64.name();
+            case arm64 -> RpmArch.aarch64.name();
+            case riscv64 -> "riscv64";
+            case null -> "noarch";
+            case unknown -> "noarch";
+            default -> throw new UnsupportedOperationException("Unknown arch: " + arch);
+        };
     }
 
     /**
@@ -53,7 +64,8 @@ public class RpmPackageBuilder implements PackageBuilder {
         if (StringUtils.hasText(meta.getReleaseVersion()))
             stringBuilder.append('-').append(meta.getReleaseVersion());
 
-        stringBuilder.append('.').append(meta.getElVersion());
+        if (StringUtils.hasText(meta.getElVersion()))
+            stringBuilder.append('.').append(meta.getElVersion());
         stringBuilder.append('.').append(archName(meta.getArch())).append(".rpm");
         return stringBuilder.toString();
     }
@@ -61,8 +73,15 @@ public class RpmPackageBuilder implements PackageBuilder {
     @Override
     @SneakyThrows
     public FileIntegrityWithContent buildPackage(PackageConfig config) {
-        // needed up here for hashing and stuff
-        var payload = buildPayload(config);
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(config.getMeta(), "config.meta");
+        Objects.requireNonNull(config.getFiles(), "config.files");
+
+        var buildTime = Instant.now().getEpochSecond();
+        var files = readFiles(config);
+        var payload = buildPayload(files, buildTime);
+        var header = buildHeader(config, files, payload, buildTime);
+        var signature = buildSignature(header, payload);
 
         var out = new ByteArrayOutputStream();
 
@@ -78,38 +97,14 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .setOsNum(Lead.OsNum.linux)
                 .setSignatureType(Lead.SignatureType.header)
                 .toByteArray());
-
-        {
-            var sigEntries = new ArrayList<Signature.SignatureEntry>();
-
-            out.write(new Signature.Index()
-                    .setIntro(new Signature.Intro())
-                    .setEntries(new ArrayList<>())
-                    .addEntries(sigEntries)
-                    .toByteArray());
-
-            out.write(new Signature().setEntries(sigEntries).toByteArray());
-        }
-
-        {
-            var headerEntries = new ArrayList<Signature.SignatureEntry>();
-
-            out.write(new Signature.Index()
-                    .setIntro(new Signature.Intro())
-                    .setEntries(new ArrayList<>())
-                    .addEntries(headerEntries)
-                    .toByteArray());
-
-            out.write(new Signature().setEntries(headerEntries).toByteArray());
-        }
-
-        var offset = 0; // todo calculate what it should be
-        while (offset-- > 0)
+        out.write(signature);
+        while (out.size() % 8 != 0) {
             out.write(0);
+        }
+        out.write(header);
+        out.write(payload.compressed());
 
-        out.write(payload);
-
-        throw new UnsupportedOperationException();
+        return FileIntegrityWithContent.of(out.toByteArray(), fileName(config));
     }
 
     @Override
@@ -117,22 +112,220 @@ public class RpmPackageBuilder implements PackageBuilder {
         throw new UnsupportedOperationException();
     }
 
+    private List<PackageFile> readFiles(PackageConfig config) {
+        var specs = Objects.requireNonNullElse(config.getFiles().getDataFiles(), List.<PackageConfig.PkgFileSpec>of());
+        var files = new ArrayList<PackageFile>(specs.size());
+        for (var spec : specs) {
+            var path = normalizePath(spec.getPath());
+            var separator = path.lastIndexOf('/');
+            files.add(new PackageFile(
+                    spec,
+                    fileSpecReader.readContent(spec),
+                    path,
+                    path.substring(0, separator + 1),
+                    path.substring(separator + 1)));
+        }
+        return files;
+    }
+
     @SneakyThrows
-    private byte[] buildPayload(PackageConfig config) {
-        ByteArrayOutputStream raw = new ByteArrayOutputStream();
-
-        try (var gzip = new GZIPOutputStream(raw);
-             var cpio = new CpioArchiveOutputStream(gzip)) {
-
-            for (PackageConfig.PkgFileSpec file : config.getFiles().getDataFiles()) {
-                byte[] content = fileSpecReader.readContent(file);
-                cpio.putArchiveEntry(new CpioArchiveEntry(file.getPath(), content.length));
-                cpio.write(content);
+    private Payload buildPayload(List<PackageFile> files, long buildTime) {
+        var archive = new ByteArrayOutputStream();
+        try (var cpio = new CpioArchiveOutputStream(archive)) {
+            for (var file : files) {
+                var entry = new CpioArchiveEntry("." + file.path(), file.content().length);
+                entry.setMode(0100000L | fileMode(file.spec()));
+                entry.setTime(buildTime);
+                cpio.putArchiveEntry(entry);
+                cpio.write(file.content());
+                cpio.closeArchiveEntry();
             }
-
             cpio.finish();
         }
+        var compressed = new ByteArrayOutputStream();
+        try (var gzip = new GZIPOutputStream(compressed)) {
+            gzip.write(archive.toByteArray());
+        }
+        return new Payload(archive.toByteArray(), compressed.toByteArray());
+    }
 
-        return raw.toByteArray();
+    private byte[] buildHeader(PackageConfig config, List<PackageFile> files, Payload payload, long buildTime) {
+        var meta = config.getMeta();
+        var control = config.getControl();
+        var description = control == null || !StringUtils.hasText(control.getDescription())
+                ? meta.getName()
+                : control.getDescription();
+        var entries = new ArrayList<Signature.SignatureEntry>();
+
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_HEADERI18NTABLE, List.of("C")));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_NAME, meta.getName()));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_VERSION, meta.getVersion()));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_RELEASE, release(meta)));
+        entries.add(i18nString(RpmTags.RpmTag.RPMTAG_SUMMARY, description.lines().findFirst().orElse(meta.getName())));
+        entries.add(i18nString(RpmTags.RpmTag.RPMTAG_DESCRIPTION, description));
+        entries.add(int32(RpmTags.RpmTag.RPMTAG_BUILDTIME, Math.toIntExact(buildTime)));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_BUILDHOST, "localhost"));
+        entries.add(int32(RpmTags.RpmTag.RPMTAG_SIZE, files.stream().mapToInt(f -> f.content().length).sum()));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_LICENSE, "unknown"));
+        entries.add(i18nString(RpmTags.RpmTag.RPMTAG_GROUP,
+                control == null ? "Applications/System" : control.getSection()));
+        if (control != null && StringUtils.hasText(control.getHomepage())) {
+            entries.add(string(RpmTags.RpmTag.RPMTAG_URL, control.getHomepage()));
+        }
+        var packager = StringUtils.hasText(meta.getReleaser())
+                ? meta.getReleaser()
+                : control == null ? null : control.getMaintainer();
+        if (StringUtils.hasText(packager)) {
+            entries.add(string(RpmTags.RpmTag.RPMTAG_PACKAGER, packager));
+        }
+        entries.add(string(RpmTags.RpmTag.RPMTAG_OS, "linux"));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_ARCH, archName(meta.getArch())));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_RPMVERSION, Version.VERSION));
+
+        addFileEntries(entries, files, buildTime);
+
+        entries.add(int32(RpmTags.RpmTag.RPMTAG_ARCHIVESIZE, payload.uncompressed().length));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_PAYLOADFORMAT, "cpio"));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_PAYLOADCOMPRESSOR, "gzip"));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_PAYLOADFLAGS, "9"));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_PLATFORM, archName(meta.getArch()) + "-linux"));
+        entries.add(int32(RpmTags.RpmTag.RPMTAG_FILEDIGESTALGO, 8));
+        entries.add(string(RpmTags.RpmTag.RPMTAG_ENCODING, "utf-8"));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_PAYLOADSHA256, List.of(DigestUtils.sha256Hex(payload.compressed()))));
+        entries.add(int32(RpmTags.RpmTag.RPMTAG_PAYLOADSHA256ALGO, 8));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_PAYLOADSHA256ALT, List.of(DigestUtils.sha256Hex(payload.uncompressed()))));
+
+        return buildSection(entries, RpmTags.RpmTag.RPMTAG_HEADERIMMUTABLE);
+    }
+
+    private void addFileEntries(List<Signature.SignatureEntry> entries, List<PackageFile> files, long buildTime) {
+        if (files.isEmpty()) {
+            return;
+        }
+        var directories = new LinkedHashMap<String, Integer>();
+        for (var file : files) {
+            directories.computeIfAbsent(file.directory(), ignored -> directories.size());
+        }
+
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILESIZES, files.stream().map(f -> f.content().length).toList()));
+        entries.add(int16s(RpmTags.RpmTag.RPMTAG_FILEMODES, files.stream().map(f -> 0100000 | fileMode(f.spec())).toList()));
+        entries.add(int16s(RpmTags.RpmTag.RPMTAG_FILERDEVS, Collections.nCopies(files.size(), 0)));
+        Integer value = Math.toIntExact(buildTime);
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEMTIMES, Collections.nCopies(files.size(), value)));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILEDIGESTS, files.stream().map(f -> DigestUtils.sha256Hex(f.content())).toList()));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILELINKTOS, Collections.nCopies(files.size(), "")));
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEFLAGS, Collections.nCopies(files.size(), 0)));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILEUSERNAME, Collections.nCopies(files.size(), "root")));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILEGROUPNAME, Collections.nCopies(files.size(), "root")));
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEVERIFYFLAGS, Collections.nCopies(files.size(), -1)));
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEDEVICES, Collections.nCopies(files.size(), 1)));
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_FILEINODES,
+                java.util.stream.IntStream.rangeClosed(1, files.size()).boxed().toList()));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_FILELANGS, Collections.nCopies(files.size(), "")));
+        entries.add(int32s(RpmTags.RpmTag.RPMTAG_DIRINDEXES,
+                files.stream().map(f -> directories.get(f.directory())).toList()));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_BASENAMES, files.stream().map(PackageFile::basename).toList()));
+        entries.add(strings(RpmTags.RpmTag.RPMTAG_DIRNAMES, new ArrayList<>(directories.keySet())));
+    }
+
+    private byte[] buildSignature(byte[] header, Payload payload) {
+        var headerAndPayload = ByteBuffer.allocate(header.length + payload.compressed().length)
+                .put(header)
+                .put(payload.compressed())
+                .array();
+        var entries = new ArrayList<Signature.SignatureEntry>();
+        entries.add(string(RpmTags.SignatureTag.SHA1, DigestUtils.sha1Hex(header)));
+        entries.add(string(RpmTags.SignatureTag.SHA256, DigestUtils.sha256Hex(header)));
+        entries.add(int32(RpmTags.SignatureTag.SIZE, headerAndPayload.length));
+        entries.add(binary(RpmTags.SignatureTag.MD5, DigestUtils.md5(headerAndPayload)));
+        entries.add(int32(RpmTags.SignatureTag.PAYLOADSIZE, payload.uncompressed().length));
+        entries.add(binary(RpmTags.SignatureTag.RESERVEDSPACE, new byte[4096]));
+        return buildSection(entries, RpmTags.SignatureTag.HEADERSIGNATURES);
+    }
+
+    private byte[] buildSection(List<Signature.SignatureEntry> entries, RpmTags regionTag) {
+        var regionEntryCount = entries.size() + 1;
+        var trailer = ByteBuffer.allocate(16)
+                .putInt(regionTag.getTagValue())
+                .putInt(RPM_BIN_TYPE.getValue())
+                .putInt(-Math.multiplyExact(regionEntryCount, 16))
+                .putInt(16)
+                .array();
+        entries.add(binary(regionTag, trailer));
+
+        var data = new Signature().setEntries(entries);
+        var index = data.toIndex();
+        return ByteBuffer.allocate(Signature.Intro.SIZE + index.getIntro().indexSize() + data.totalLength())
+                .put(index.getIntro().toByteArray())
+                .put(index.toByteArray())
+                .put(data.toByteArray())
+                .array();
+    }
+
+    private Signature.SignatureEntry string(RpmTags tag, String value) {
+        return entry(tag, RPM_STRING_TYPE, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Signature.SignatureEntry i18nString(RpmTags tag, String value) {
+        return entry(tag, RPM_I18NSTRING_TYPE, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Signature.SignatureEntry strings(RpmTags tag, List<String> values) {
+        return entry(tag, RPM_STRING_ARRAY_TYPE, String.join("\0", values).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Signature.SignatureEntry int32(RpmTags tag, int value) {
+        return entry(tag, RPM_INT32_TYPE, ByteBuffer.allocate(4).putInt(value).array());
+    }
+
+    private Signature.SignatureEntry int32s(RpmTags tag, List<Integer> values) {
+        var buffer = ByteBuffer.allocate(Math.multiplyExact(values.size(), 4));
+        values.forEach(buffer::putInt);
+        return entry(tag, RPM_INT32_TYPE, buffer.array());
+    }
+
+    private Signature.SignatureEntry int16s(RpmTags tag, List<Integer> values) {
+        var buffer = ByteBuffer.allocate(Math.multiplyExact(values.size(), 2));
+        values.forEach(value -> buffer.putShort((short) (value & 0xffff)));
+        return entry(tag, RPM_INT16_TYPE, buffer.array());
+    }
+
+    private Signature.SignatureEntry binary(RpmTags tag, byte[] value) {
+        return entry(tag, RPM_BIN_TYPE, value);
+    }
+
+    private Signature.SignatureEntry entry(RpmTags tag, RpmTags.RpmTagType type, byte[] value) {
+        return new Signature.SignatureEntry()
+                .setTag(tag)
+                .setType(type)
+                .setContent(ByteBuffer.wrap(value));
+    }
+
+    @SuppressWarnings("OctalInteger")
+    private int fileMode(PackageConfig.PkgFileSpec spec) {
+        return Objects.requireNonNullElse(spec.getMode(), 0644) & 07777;
+    }
+
+    private String release(PackageConfig.PackageMeta meta) {
+        var release = StringUtils.hasText(meta.getReleaseVersion()) ? meta.getReleaseVersion() : "1";
+        return StringUtils.hasText(meta.getElVersion()) ? release + "." + meta.getElVersion() : release;
+    }
+
+    private String normalizePath(String path) {
+        if (!StringUtils.hasText(path)) {
+            throw new IllegalArgumentException("package file path is blank");
+        }
+        var normalized = path.startsWith("/") ? path : "/" + path;
+        if (normalized.endsWith("/")) {
+            throw new IllegalArgumentException("package file path must name a file: " + path);
+        }
+        return normalized;
+    }
+
+    private record PackageFile(PackageConfig.PkgFileSpec spec, byte[] content, String path, String directory,
+                               String basename) {
+    }
+
+    private record Payload(byte[] uncompressed, byte[] compressed) {
     }
 }

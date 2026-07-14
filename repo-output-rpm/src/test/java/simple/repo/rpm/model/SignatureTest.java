@@ -25,9 +25,36 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SignatureTest extends SampleData {
+
+    @Test
+    void parsedHeadersSerializeBackToTheirOriginalIndexAndData() {
+        var bb = ByteBuffer.wrap(readBytes("cloud-utils-0.33-13.fc44.noarch.rpm"));
+        Lead.parse(bb);
+
+        var signatureIntro = Intro.parse(bb);
+        var signatureIndex = Index.parse(signatureIntro, bb);
+        var signatureData = new byte[signatureIntro.getDataLength()];
+        bb.get(bb.position(), signatureData);
+        var signature = Signature.parseSignature(signatureIndex, bb);
+
+        assertEquals(signatureIntro, signature.toIndex().getIntro());
+        assertEquals(signatureIndex.getEntries(), signature.toIndexEntries());
+        assertArrayEquals(signatureData, signature.toByteArray());
+
+        var headerIntro = Intro.parse(bb);
+        var headerIndex = Index.parse(headerIntro, bb);
+        var headerData = new byte[headerIntro.getDataLength()];
+        bb.get(bb.position(), headerData);
+        var header = Signature.parseHeader(headerIndex, bb);
+
+        assertEquals(headerIntro, header.toIndex().getIntro());
+        assertEquals(headerIndex.getEntries(), header.toIndexEntries());
+        assertArrayEquals(headerData, header.toByteArray());
+    }
 
     @Test
     void testIndex() {

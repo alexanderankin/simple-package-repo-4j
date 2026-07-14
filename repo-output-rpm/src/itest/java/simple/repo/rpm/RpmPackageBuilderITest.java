@@ -51,7 +51,7 @@ public class RpmPackageBuilderITest {
 
     @SneakyThrows
     @Test
-    void buildsValidRpm() {
+    void buildsRecognizableRpm() {
         FileIntegrityWithContent rpm = builder.buildPackage(
                 new PackageConfig()
                         .setMeta(new PackageMeta().setName("testpkg").setVersion("1.0.0").setArch(Arch.current()))
@@ -70,6 +70,7 @@ public class RpmPackageBuilderITest {
             System.out.println("ExitCode: " + exec.getExitCode());
             System.out.println("Stdout: " + exec.getStdout());
             System.out.println("Stderr: " + exec.getStderr());
+            assertThat(exec.getExitCode(), is(0));
 
             // assertThat(genericContainer.execInContainer("cat", "/usr/share/test/hello.txt").getStdout(), is("hello world\n"));
         }

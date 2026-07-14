@@ -36,20 +36,20 @@ public class Signature {
 
             var contentLength = switch (entry.type) {
                 case RPM_CHAR_TYPE, RPM_BIN_TYPE -> entry.count;
-                case RPM_INT8_TYPE -> 1;
-                case RPM_INT16_TYPE -> 2;
-                case RPM_INT32_TYPE -> 4;
-                case RPM_INT64_TYPE -> 8;
+                case RPM_INT8_TYPE -> entry.count;
+                case RPM_INT16_TYPE -> Math.multiplyExact(entry.count, 2);
+                case RPM_INT32_TYPE -> Math.multiplyExact(entry.count, 4);
+                case RPM_INT64_TYPE -> Math.multiplyExact(entry.count, 8);
                 case RPM_STRING_TYPE, RPM_STRING_ARRAY_TYPE, RPM_I18NSTRING_TYPE -> {
                     var remainingCount = entry.count;
-                    var length = 0;
                     var position = entry.offset;
                     while (remainingCount-- > 0) {
                         while (dataBuffer.get(position++) != '\0') {
-                            length++;
+                            // Find each value's terminator. Array separators remain in
+                            // content, while the final terminator is restored on writing.
                         }
                     }
-                    yield length;
+                    yield position - entry.offset - 1;
                 }
                 default -> throw new UnsupportedOperationException("unsupported type " + entry.type);
             };
@@ -81,7 +81,7 @@ public class Signature {
         bb.position(bb.position() + index.intro.dataLength);
         // The Signature uses the same underlying data structure as the Header, but is zero-padded to a multiple of 8 bytes.
         // https://rpm.org/docs/6.1.x/manual/format_v4.html
-        bb.position(bb.position() + (8 - (bb.position() % 8)));
+        bb.position(bb.position() + ((8 - (bb.position() % 8)) % 8));
         return signature;
     }
 
@@ -92,29 +92,25 @@ public class Signature {
     }
 
     public int totalLength() {
-        int offset = 0;
-        for (SignatureEntry entry : entries) {
-            offset += headerDataAlignmentOffset(entry.type, offset);
-            offset += entry.content.capacity();
-            if (entry.type == RpmTags.RpmTagType.RPM_STRING_TYPE ||
-                    entry.type == RpmTags.RpmTagType.RPM_STRING_ARRAY_TYPE ||
-                    entry.type == RpmTags.RpmTagType.RPM_I18NSTRING_TYPE) {
-                offset += 1;
-            }
-        }
-        return offset;
+        return EntryLayout.layoutEntries(entries, 0).stream()
+                .mapToInt(EntryLayout::endOffset)
+                .max()
+                .orElse(0);
     }
 
     public List<Index.IndexEntry> toIndexEntries() {
-        throw new UnsupportedOperationException();
+        return new Index()
+                .setIntro(new Intro())
+                .setEntries(new ArrayList<>())
+                .addEntries(entries)
+                .getEntries();
     }
 
     public Index toIndex() {
         return new Index()
-                .setIntro(new Intro()
-                        .setEntryCount(entries.size())
-                        .setDataLength(totalLength()))
-                .setEntries(toIndexEntries());
+                .setIntro(new Intro())
+                .setEntries(new ArrayList<>())
+                .addEntries(entries);
     }
 
     public byte[] toByteArray() {
@@ -126,25 +122,16 @@ public class Signature {
     }
 
     public ByteBuffer toByteBuffer(ByteBuffer byteBuffer) {
-        int offset = 0;
-        for (SignatureEntry entry : entries) {
-            int alignmentOffset = headerDataAlignmentOffset(entry.type, offset);
-
-            for (int i = 0; i < alignmentOffset; i++) {
+        if (byteBuffer.remaining() != totalLength()) {
+            throw new IllegalArgumentException("invalid data buffer length");
+        }
+        for (EntryLayout layout : EntryLayout.layoutEntries(entries, 0)) {
+            for (int i = 0; i < layout.padding(); i++) {
                 byteBuffer.put((byte) 0);
             }
-            offset += alignmentOffset;
-
-            if (entry.content.capacity() > byteBuffer.remaining())
-                System.out.println();
-            byteBuffer.put(entry.content);
-            offset += entry.content.capacity();
-
-            if (entry.type == RpmTags.RpmTagType.RPM_STRING_TYPE ||
-                    entry.type == RpmTags.RpmTagType.RPM_STRING_ARRAY_TYPE ||
-                    entry.type == RpmTags.RpmTagType.RPM_I18NSTRING_TYPE) {
+            byteBuffer.put(layout.entry().copyByteArray());
+            if (EntryLayout.isString(layout.entry().type)) {
                 byteBuffer.put((byte) 0);
-                offset += 1;
             }
         }
         return byteBuffer;
@@ -170,7 +157,7 @@ public class Signature {
      * @return number of bytes to insert before this header to align it
      * @see <a href=https://rpm-software-management.github.io/rpm/manual/format_header.html#data>rpm manual: format_header: Data</a>
      */
-    private int headerDataAlignmentOffset(RpmTags.RpmTagType type, int offset) {
+    private static int headerDataAlignmentOffset(RpmTags.RpmTagType type, int offset) {
         return switch (type) {
             case RPM_INT16_TYPE -> (2 - (offset % 2)) % 2;
             case RPM_INT32_TYPE -> (4 - (offset % 4)) % 4;
@@ -192,7 +179,7 @@ public class Signature {
         ByteBuffer content;
 
         public int findLength() {
-            throw new UnsupportedOperationException();
+            return EntryLayout.layoutEntries(List.of(this), 0).getFirst().count();
         }
 
         public byte[] copyByteArray() {
@@ -266,39 +253,20 @@ public class Signature {
         }
 
         public Index addEntries(List<SignatureEntry> signatureEntries) {
-            var offsetSoFar = previousOffset();
-            for (SignatureEntry signatureEntry : signatureEntries) {
-                var ourOffset = intro.getEntryCount() == 0 ? 0 : offset(signatureEntry, offsetSoFar);
-                var ourLength = size(signatureEntry);
-
-                intro.setDataLength(intro.getDataLength() + ourOffset + ourLength);
-                intro.setEntryCount(intro.getEntryCount() + 1);
+            Objects.requireNonNull(intro, "intro");
+            Objects.requireNonNull(entries, "entries");
+            for (EntryLayout layout : EntryLayout.layoutEntries(signatureEntries, intro.getDataLength())) {
+                var signatureEntry = layout.entry();
                 entries.add(new IndexEntry()
                         .setTag(signatureEntry.getTag().getTagValue())
                         .setType(signatureEntry.getType())
-                        .setOffset(offsetSoFar + ourOffset)
-                        .setCount(count(signatureEntry)));
+                        .setOffset(layout.offset())
+                        .setCount(layout.count()));
+                intro.setDataLength(layout.endOffset());
+                intro.setEntryCount(intro.getEntryCount() + 1);
             }
-        }
-
-        // based on data type and length, determine correct "count" rpm value
-        private int count(SignatureEntry signatureEntry) {
-            throw new UnsupportedOperationException();
-        }
-
-        // method should add up all previous entries
-        // before adding each preceding-entry-having-entry (PEHE) with a preceding entry size, (all except first), add alignment buffer based on data type/count of PEHE
-        private int previousOffset() {
-            throw new UnsupportedOperationException();
-        }
-
-        // based on type of data and count, determine how many bytes need to come before us to align us properly
-        private int offset(SignatureEntry signatureEntry, int offsetSoFar) {
-            throw new UnsupportedOperationException();
-        }
-
-        private int size(SignatureEntry signatureEntry) {
-            throw new UnsupportedOperationException();
+            entries.sort(Comparator.comparingInt(IndexEntry::getTag));
+            return this;
         }
 
 
@@ -308,6 +276,74 @@ public class Signature {
             int tag;
             RpmTags.RpmTagType type;
             int offset, count;
+        }
+    }
+
+    private record EntryLayout(SignatureEntry entry, int offset, int padding, int count, int encodedSize) {
+        int endOffset() {
+            return offset + encodedSize;
+        }
+        /**
+         * Calculates offsets, alignment, RPM counts and encoded sizes together so
+         * the index and data-store writers cannot develop subtly different rules.
+         */
+        private static List<EntryLayout> layoutEntries(List<SignatureEntry> entries, int initialOffset) {
+            var layouts = new ArrayList<EntryLayout>(entries.size());
+            var offset = initialOffset;
+            for (SignatureEntry entry : entries) {
+                Objects.requireNonNull(entry, "entry");
+                Objects.requireNonNull(entry.type, "entry.type");
+                Objects.requireNonNull(entry.tag, "entry.tag");
+                var dataLength = content(entry).remaining();
+                var padding = headerDataAlignmentOffset(entry.type, offset);
+                var count = switch (entry.type) {
+                    case RPM_CHAR_TYPE, RPM_INT8_TYPE, RPM_BIN_TYPE -> dataLength;
+                    case RPM_INT16_TYPE -> integralCount(entry, dataLength, 2);
+                    case RPM_INT32_TYPE -> integralCount(entry, dataLength, 4);
+                    case RPM_INT64_TYPE -> integralCount(entry, dataLength, 8);
+                    case RPM_STRING_TYPE -> {
+                        if (nullCount(entry) != 0) {
+                            throw new IllegalArgumentException("RPM_STRING_TYPE contains a null byte");
+                        }
+                        yield 1;
+                    }
+                    case RPM_STRING_ARRAY_TYPE, RPM_I18NSTRING_TYPE -> nullCount(entry) + 1;
+                    case RPM_NULL_TYPE -> throw new IllegalArgumentException("RPM_NULL_TYPE has no serializable value");
+                };
+                var encodedSize = Math.addExact(dataLength, isString(entry.type) ? 1 : 0);
+                offset = Math.addExact(offset, padding);
+                layouts.add(new EntryLayout(entry, offset, padding, count, encodedSize));
+                offset = Math.addExact(offset, encodedSize);
+            }
+            return layouts;
+        }
+
+        private static int integralCount(SignatureEntry entry, int dataLength, int width) {
+            if (dataLength == 0 || dataLength % width != 0) {
+                throw new IllegalArgumentException(entry.type + " content length must be a non-zero multiple of " + width);
+            }
+            return dataLength / width;
+        }
+
+        private static boolean isString(RpmTags.RpmTagType type) {
+            return type == RpmTags.RpmTagType.RPM_STRING_TYPE ||
+                    type == RpmTags.RpmTagType.RPM_STRING_ARRAY_TYPE ||
+                    type == RpmTags.RpmTagType.RPM_I18NSTRING_TYPE;
+        }
+
+        private static int nullCount(SignatureEntry entry) {
+            var count = 0;
+            var content = content(entry);
+            while (content.hasRemaining()) {
+                if (content.get() == 0) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        private static ByteBuffer content(SignatureEntry entry) {
+            return ByteBuffer.wrap(entry.copyByteArray());
         }
     }
 
