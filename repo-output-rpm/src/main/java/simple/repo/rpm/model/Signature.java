@@ -256,8 +256,7 @@ public class Signature {
             if (byteBuffer.remaining() != intro.indexSize()) {
                 throw new IllegalArgumentException("intro.entryCount != entryCount * 16");
             }
-            for (int i = 0; i < entries.size(); i++) {
-                var entry = entries.get(i);
+            for (IndexEntry entry : entries) {
                 byteBuffer.putInt(entry.tag);
                 byteBuffer.putInt(entry.type.getValue());
                 byteBuffer.putInt(entry.offset);
@@ -265,6 +264,43 @@ public class Signature {
             }
             return byteBuffer;
         }
+
+        public Index addEntries(List<SignatureEntry> signatureEntries) {
+            var offsetSoFar = previousOffset();
+            for (SignatureEntry signatureEntry : signatureEntries) {
+                var ourOffset = intro.getEntryCount() == 0 ? 0 : offset(signatureEntry, offsetSoFar);
+                var ourLength = size(signatureEntry);
+
+                intro.setDataLength(intro.getDataLength() + ourOffset + ourLength);
+                intro.setEntryCount(intro.getEntryCount() + 1);
+                entries.add(new IndexEntry()
+                        .setTag(signatureEntry.getTag().getTagValue())
+                        .setType(signatureEntry.getType())
+                        .setOffset(offsetSoFar + ourOffset)
+                        .setCount(count(signatureEntry)));
+            }
+        }
+
+        // based on data type and length, determine correct "count" rpm value
+        private int count(SignatureEntry signatureEntry) {
+            throw new UnsupportedOperationException();
+        }
+
+        // method should add up all previous entries
+        // before adding each preceding-entry-having-entry (PEHE) with a preceding entry size, (all except first), add alignment buffer based on data type/count of PEHE
+        private int previousOffset() {
+            throw new UnsupportedOperationException();
+        }
+
+        // based on type of data and count, determine how many bytes need to come before us to align us properly
+        private int offset(SignatureEntry signatureEntry, int offsetSoFar) {
+            throw new UnsupportedOperationException();
+        }
+
+        private int size(SignatureEntry signatureEntry) {
+            throw new UnsupportedOperationException();
+        }
+
 
         @Data
         @Accessors(chain = true)

@@ -5,22 +5,17 @@ import lombok.SneakyThrows;
 import lombok.experimental.Accessors;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
 import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
 import simple.repo.packaging.FileSpecReader;
 import simple.repo.packaging.PackageBuilder;
+import simple.repo.rpm.model.Lead;
+import simple.repo.rpm.model.Signature;
 
 import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.zip.GZIPOutputStream;
 
@@ -66,6 +61,54 @@ public class RpmPackageBuilder implements PackageBuilder {
     @Override
     @SneakyThrows
     public FileIntegrityWithContent buildPackage(PackageConfig config) {
+        // needed up here for hashing and stuff
+        var payload = buildPayload(config);
+
+        var out = new ByteArrayOutputStream();
+
+        out.write(new Lead()
+                .setType(Lead.PackageType.binary)
+                .setArchNumValue(switch (config.getMeta().getArch()) {
+                    case amd64 -> Lead.ArchNum.x86_64;
+                    case arm64 -> Lead.ArchNum.aarch64;
+                    case riscv64 -> Lead.ArchNum.riscv64;
+                    case null, default -> throw new UnsupportedOperationException();
+                })
+                .setNameString(fileName(config))
+                .setOsNum(Lead.OsNum.linux)
+                .setSignatureType(Lead.SignatureType.header)
+                .toByteArray());
+
+        {
+            var sigEntries = new ArrayList<Signature.SignatureEntry>();
+
+            out.write(new Signature.Index()
+                    .setIntro(new Signature.Intro())
+                    .setEntries(new ArrayList<>())
+                    .addEntries(sigEntries)
+                    .toByteArray());
+
+            out.write(new Signature().setEntries(sigEntries).toByteArray());
+        }
+
+        {
+            var headerEntries = new ArrayList<Signature.SignatureEntry>();
+
+            out.write(new Signature.Index()
+                    .setIntro(new Signature.Intro())
+                    .setEntries(new ArrayList<>())
+                    .addEntries(headerEntries)
+                    .toByteArray());
+
+            out.write(new Signature().setEntries(headerEntries).toByteArray());
+        }
+
+        var offset = 0; // todo calculate what it should be
+        while (offset-- > 0)
+            out.write(0);
+
+        out.write(payload);
+
         throw new UnsupportedOperationException();
     }
 
