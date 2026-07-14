@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 
 public class RpmPackageBuilderITest {
+    static final YAMLMapper YAML_MAPPER = YAMLMapper.builder().findAndAddModules().build();
     RpmPackageBuilder builder;
 
     @BeforeEach
@@ -74,7 +75,7 @@ public class RpmPackageBuilderITest {
     @SneakyThrows
     @Test
     void testRpmIvh() {
-        var rpm = builder.buildPackage(YAMLMapper.builder().findAndAddModules().build().readValue(
+        var rpm = builder.buildPackage(YAML_MAPPER.readValue(
                 """
                         meta:
                           arch: __CURRENT_ARCH__
@@ -110,7 +111,7 @@ public class RpmPackageBuilderITest {
     @SneakyThrows
     @Test
     void installsExecutableAndConfigFileInNestedDirectories() {
-        var rpm = builder.buildPackage(YAMLMapper.builder().findAndAddModules().build().readValue(
+        var rpm = builder.buildPackage(YAML_MAPPER.readValue(
                 """
                         meta:
                           arch: __CURRENT_ARCH__
@@ -152,7 +153,7 @@ public class RpmPackageBuilderITest {
     @SneakyThrows
     @Test
     void runsInstallAndUninstallControlScripts() {
-        var rpm = builder.buildPackage(YAMLMapper.builder().findAndAddModules().build().readValue(
+        var rpm = builder.buildPackage(YAML_MAPPER.readValue(
                 """
                         meta:
                           arch: __CURRENT_ARCH__
@@ -195,6 +196,7 @@ public class RpmPackageBuilderITest {
         }
     }
 
+    @SuppressWarnings("resource")
     private GenericContainer<?> rpmContainer(FileIntegrityWithContent rpm) {
         return new GenericContainer<>("rockylinux/rockylinux:10")
                 .withCreateContainerCmdModifier(c -> c.withEntrypoint("tail", "-f", "/dev/null"))

@@ -35,11 +35,18 @@ class DebPackageBuilderTest {
         assertThat(debPackageBuilder.archName(Arch.valueOf(arch.strip())), is(equalTo(expected.strip())));
     }
 
-    @Test
-    void fileName() {
+    @ParameterizedTest
+    @CsvSource(value = {
+            "arm64,test-package,0.0.1,null,test-package_0.0.1_arm64.deb",
+            "arm64,test-package,0.0.1,1,test-package_0.0.1-1_arm64.deb",
+            "amd64,test-package,0.0.3,3,test-package_0.0.3-3_amd64.deb",
+    }, nullValues = "null")
+    void fileName(String archName, String name, String version, String rv, String expected) {
         assertThat(debPackageBuilder.fileName(new PackageConfig().setMeta(new PackageConfig.PackageMeta()
-                .setArch(Arch.arm64)
-                .setName("test-package")
-                .setVersion("0.0.1"))), is(equalTo("test-package_0.0.1_arm64.deb")));
+                .setArch(Arch.valueOf(archName))
+                .setName(name)
+                .setReleaseVersion(rv)
+                .setVersion(version))
+        ), is(equalTo(expected)));
     }
 }
