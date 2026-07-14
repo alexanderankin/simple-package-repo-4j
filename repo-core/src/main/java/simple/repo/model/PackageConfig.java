@@ -40,6 +40,7 @@ public class PackageConfig {
             @JsonSubTypes.Type(value = PkgFileSpec.TextPkgFileSpec.class, name = "text"),
             @JsonSubTypes.Type(value = PkgFileSpec.BinaryPkgFileSpec.class, name = "binary"),
             @JsonSubTypes.Type(value = PkgFileSpec.FilePkgFileSpec.class, name = "file"),
+            @JsonSubTypes.Type(value = PkgFileSpec.DirPkgFileSpec.class, name = "dir"),
             @JsonSubTypes.Type(value = PkgFileSpec.UrlPkgFileSpec.class, name = "url"),
     })
     @Dto
@@ -81,6 +82,25 @@ public class PackageConfig {
         public static final class FilePkgFileSpec extends PkgFileSpec {
             @NotBlank
             String sourcePath;
+        }
+
+        @ToString(callSuper = true)
+        @EqualsAndHashCode(callSuper = true)
+        @Dto
+        @Data
+        @Accessors(chain = true)
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static final class DirPkgFileSpec extends PkgFileSpec {
+            @NotBlank
+            String sourcePath;
+            @NotNull
+            ModeMode modeMode = ModeMode.INHERIT;
+            LinkedHashMap<String, Integer> modeOverrides;
+
+            public enum ModeMode {
+                INHERIT,
+                OVERRIDE,
+            }
         }
 
         @ToString(callSuper = true)

@@ -28,6 +28,10 @@ public enum Arch {
 
 
     public static Arch current() {
-        return MAP.getOrDefault(System.getProperty("os.arch"), unknown);
+        return switch (System.getProperty("os.arch")) {
+            case "x86_64", "x64" -> amd64;
+            case "aarch64" -> arm64;
+            default -> MAP.getOrDefault(System.getProperty("os.arch"), unknown);
+        };
     }
 }

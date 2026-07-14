@@ -16,6 +16,9 @@ import simple.repo.packaging.PackageBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -138,6 +141,10 @@ public class DebPackageBuilder implements PackageBuilder {
             Set<String> seenDirs = new HashSet<>();
 
             for (PackageConfig.PkgFileSpec f : allFiles) {
+                if (f instanceof PackageConfig.PkgFileSpec.DirPkgFileSpec directory) {
+                    addDirectoryTree(seenDirs, tarOut, directory, settings);
+                    continue;
+                }
                 byte[] content = fileSpecReader.readContent(f);
                 createDirs(seenDirs, tarOut, f.getPath(), settings);
                 TarArchiveEntry entry = new TarArchiveEntry(f.getPath());
@@ -153,6 +160,81 @@ public class DebPackageBuilder implements PackageBuilder {
             }
         }
         return out.toByteArray();
+    }
+
+    @SneakyThrows
+    private void addDirectoryTree(Set<String> seenDirs,
+                                  TarArchiveOutputStream tarOut,
+                                  PackageConfig.PkgFileSpec.DirPkgFileSpec spec,
+                                  PackageConfig.Settings settings) {
+        var sourceRoot = fileSpecReader.getCurrent().resolve(spec.getSourcePath()).normalize();
+        if (!Files.isDirectory(sourceRoot)) {
+            throw new IllegalArgumentException("directory source does not exist: " + sourceRoot);
+        }
+        var targetRoot = spec.getPath().replaceFirst("^/+", "").replaceFirst("/+$", "");
+        try (var paths = Files.walk(sourceRoot)) {
+            for (var source : paths.sorted().toList()) {
+                var relative = sourceRoot.relativize(source).toString().replace(source.getFileSystem().getSeparator(), "/");
+                var target = relative.isEmpty() ? targetRoot : targetRoot + "/" + relative;
+                if (Files.isDirectory(source)) {
+                    var directoryPath = target + "/";
+                    createDirs(seenDirs, tarOut, directoryPath, settings);
+                    if (seenDirs.add(directoryPath)) {
+                        var entry = new TarArchiveEntry(directoryPath);
+                        entry.setMode(mode(spec, source, relative, true, settings));
+                        tarOut.putArchiveEntry(entry);
+                        tarOut.closeArchiveEntry();
+                    }
+                } else if (Files.isRegularFile(source)) {
+                    createDirs(seenDirs, tarOut, target, settings);
+                    var content = Files.readAllBytes(source);
+                    var entry = new TarArchiveEntry(target);
+                    entry.setSize(content.length);
+                    entry.setMode(mode(spec, source, relative, false, settings));
+                    tarOut.putArchiveEntry(entry);
+                    tarOut.write(content);
+                    tarOut.closeArchiveEntry();
+                }
+            }
+        }
+    }
+
+    @SneakyThrows
+    private int mode(PackageConfig.PkgFileSpec.DirPkgFileSpec spec,
+                     Path source,
+                     String relative,
+                     boolean directory,
+                     PackageConfig.Settings settings) {
+        if (spec.getModeOverrides() != null && spec.getModeOverrides().containsKey(relative)) {
+            return spec.getModeOverrides().get(relative);
+        }
+        if (spec.getModeMode() == PackageConfig.PkgFileSpec.DirPkgFileSpec.ModeMode.OVERRIDE && spec.getMode() != null) {
+            return spec.getMode();
+        }
+        try {
+            return posixMode(Files.getPosixFilePermissions(source));
+        } catch (UnsupportedOperationException ignored) {
+            if (directory) {
+                return settings != null && settings.getDefaultDirMode() != null
+                        ? settings.getDefaultDirMode()
+                        : 0755;
+            }
+            return spec.getMode() == null ? 0644 : spec.getMode();
+        }
+    }
+
+    private int posixMode(Set<PosixFilePermission> permissions) {
+        var mode = 0;
+        if (permissions.contains(PosixFilePermission.OWNER_READ)) mode |= 0400;
+        if (permissions.contains(PosixFilePermission.OWNER_WRITE)) mode |= 0200;
+        if (permissions.contains(PosixFilePermission.OWNER_EXECUTE)) mode |= 0100;
+        if (permissions.contains(PosixFilePermission.GROUP_READ)) mode |= 0040;
+        if (permissions.contains(PosixFilePermission.GROUP_WRITE)) mode |= 0020;
+        if (permissions.contains(PosixFilePermission.GROUP_EXECUTE)) mode |= 0010;
+        if (permissions.contains(PosixFilePermission.OTHERS_READ)) mode |= 0004;
+        if (permissions.contains(PosixFilePermission.OTHERS_WRITE)) mode |= 0002;
+        if (permissions.contains(PosixFilePermission.OTHERS_EXECUTE)) mode |= 0001;
+        return mode;
     }
 
     @SneakyThrows

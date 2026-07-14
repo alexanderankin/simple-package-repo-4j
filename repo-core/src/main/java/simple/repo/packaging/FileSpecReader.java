@@ -35,6 +35,8 @@ public class FileSpecReader {
             case PackageConfig.PkgFileSpec.TextPkgFileSpec text -> text.getContent().getBytes(StandardCharsets.UTF_8);
             case PackageConfig.PkgFileSpec.FilePkgFileSpec fs ->
                     Files.readAllBytes(current.resolve(fs.getSourcePath()));
+            case PackageConfig.PkgFileSpec.DirPkgFileSpec fs -> throw new IllegalArgumentException(
+                    "directory specs must be expanded by the package builder: " + fs.getSourcePath());
             case PackageConfig.PkgFileSpec.UrlPkgFileSpec fs -> Objects.requireNonNull(
                     restClient.get()
                             .uri(fs.getUrl())

@@ -87,7 +87,7 @@ tasks.withType(JavaCompile).configureEach { options.compilerArgs.add '-parameter
 
 tasks.withType(Jar).configureEach { manifest.attributes(['Implementation-Version': version]) }
 
-tasks.register('integrationTest', Test) {
+tasks.check.dependsOn tasks.register('integrationTest', Test) {
     group = 'verification'
     description = 'Runs the integration tests'
 

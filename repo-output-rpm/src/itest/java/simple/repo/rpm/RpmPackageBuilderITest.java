@@ -125,13 +125,13 @@ public class RpmPackageBuilderITest {
                           dataFiles:
                             - type: text
                               path: /opt/example/bin/example-hello-world
-                              mode: 493
+                              mode: 0x755
                               content: |
                                 #!/bin/sh
                                 echo 'hello world'
                             - type: text
                               path: /etc/example/hello-world/greeting.conf
-                              mode: 420
+                              mode: 0644
                               content: |
                                 greeting=hello world
                         """.replace("__CURRENT_ARCH__", Arch.current().name()),
@@ -176,7 +176,7 @@ public class RpmPackageBuilderITest {
                           dataFiles:
                             - type: text
                               path: /opt/example-scripts/bin/print-config-file
-                              mode: 493
+                              mode: 0x755
                               content: |
                                 #!/bin/sh
                                 cat /etc/example-scripts/config-file

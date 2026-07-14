@@ -22,6 +22,6 @@ dependencies {
     testImplementation 'com.github.luben:zstd-jni::win_amd64'
     testImplementation 'com.github.luben:zstd-jni::win_aarch64'
     api 'commons-codec:commons-codec'
-    implementation 'org.pgpainless:pgpainless-core'
-    implementation 'org.pgpainless:pgpainless-sop'
+    api 'org.pgpainless:pgpainless-core'
+    api 'org.pgpainless:pgpainless-sop'
 }
