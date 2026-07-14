@@ -95,8 +95,11 @@ public class RpmPackageBuilder implements PackageBuilder {
                     case amd64 -> Lead.ArchNum.x86_64;
                     case arm64 -> Lead.ArchNum.aarch64;
                     case riscv64 -> Lead.ArchNum.riscv64;
-                    case null, default -> throw new UnsupportedOperationException();
+                    case null -> null;
+                    case unknown -> null;
+                    default -> throw new UnsupportedOperationException("Unknown arch: " + config.getMeta().getArch());
                 })
+                .setArchNum((short) 255)
                 .setNameString(fileName(config))
                 .setOsNum(Lead.OsNum.linux)
                 .setSignatureType(Lead.SignatureType.header)
@@ -241,6 +244,7 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .setType(RpmTagType.RPM_STRING_TYPE)
                 .setContent(ByteBuffer.wrap(Version.VERSION.getBytes(StandardCharsets.UTF_8))));
 
+        addScriptletEntries(entries, config);
         addFileEntries(entries, files, buildTime);
 
         entries.add(new SignatureEntry()
@@ -275,6 +279,46 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .setContent(ByteBuffer.wrap(String.join("\0", List.of(DigestUtils.sha256Hex(payload.uncompressed()))).getBytes(StandardCharsets.UTF_8))));
 
         return buildSection(entries, RpmTag.RPMTAG_HEADERIMMUTABLE);
+    }
+
+    private void addScriptletEntries(List<SignatureEntry> entries, PackageConfig config) {
+        var controlFiles = Objects.requireNonNullElse(
+                config.getFiles().getControlFiles(),
+                List.<PackageConfig.PkgFileSpec>of());
+        for (var controlFile : controlFiles) {
+            var name = controlFile.getPath();
+            while (name.startsWith("./") || name.startsWith("/")) {
+                name = name.startsWith("./") ? name.substring(2) : name.substring(1);
+            }
+            switch (name) {
+                case "preinst" -> addScriptlet(entries, controlFile,
+                        RpmTag.RPMTAG_PREIN, RpmTag.RPMTAG_PREINPROG);
+                case "postinst" -> addScriptlet(entries, controlFile,
+                        RpmTag.RPMTAG_POSTIN, RpmTag.RPMTAG_POSTINPROG);
+                case "prerm" -> addScriptlet(entries, controlFile,
+                        RpmTag.RPMTAG_PREUN, RpmTag.RPMTAG_PREUNPROG);
+                case "postrm" -> addScriptlet(entries, controlFile,
+                        RpmTag.RPMTAG_POSTUN, RpmTag.RPMTAG_POSTUNPROG);
+                default -> throw new IllegalArgumentException("Unsupported RPM control file: " + controlFile.getPath());
+            }
+        }
+    }
+
+    private void addScriptlet(List<SignatureEntry> entries,
+                              PackageConfig.PkgFileSpec controlFile,
+                              RpmTag scriptTag,
+                              RpmTag programTag) {
+        if (entries.stream().anyMatch(entry -> entry.getTag() == scriptTag)) {
+            throw new IllegalArgumentException("Duplicate RPM control file: " + controlFile.getPath());
+        }
+        entries.add(new SignatureEntry()
+                .setTag(scriptTag)
+                .setType(RPM_STRING_TYPE)
+                .setContent(ByteBuffer.wrap(fileSpecReader.readContent(controlFile))));
+        entries.add(new SignatureEntry()
+                .setTag(programTag)
+                .setType(RPM_STRING_ARRAY_TYPE)
+                .setContent(ByteBuffer.wrap("/bin/sh".getBytes(StandardCharsets.UTF_8))));
     }
 
     private void addFileEntries(List<SignatureEntry> entries, List<PackageFile> files, long buildTime) {
