@@ -86,3 +86,12 @@ tasks.withType(Test).configureEach { jvmArgs.add('-javaagent:' + configurations.
 tasks.withType(JavaCompile).configureEach { options.compilerArgs.add '-parameters' }
 
 tasks.withType(Jar).configureEach { manifest.attributes(['Implementation-Version': version]) }
+
+tasks.register('integrationTest', Test) {
+    group = 'verification'
+    description = 'Runs the integration tests'
+
+    testClassesDirs = sourceSets.itest.output.classesDirs
+    classpath = sourceSets.itest.runtimeClasspath
+    shouldRunAfter test
+}
