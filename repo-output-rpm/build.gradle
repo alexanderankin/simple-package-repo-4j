@@ -6,6 +6,7 @@ dependencies {
     implementation project(':repo-core')
 
     implementation 'tools.jackson.dataformat:jackson-dataformat-xml'
+    implementation 'org.xerial:sqlite-jdbc'
 
     implementation 'jakarta.xml.bind:jakarta.xml.bind-api'
     implementation 'org.glassfish.jaxb:jaxb-runtime'

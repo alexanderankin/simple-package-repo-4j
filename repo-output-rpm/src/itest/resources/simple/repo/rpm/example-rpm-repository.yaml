@@ -1,0 +1,18 @@
+meta:
+  arch: __CURRENT_ARCH__
+  name: example-rpm-repository
+  version: 0.0.1
+  releaseVersion: "1"
+  elVersion: el10
+control:
+  maintainer: maintainer
+  description: package installed by name from a signed local RPM repository
+files:
+  controlFiles: []
+  dataFiles:
+    - type: text
+      path: /opt/example-rpm-repository/bin/hello
+      mode: 0x755
+      content: |
+        #!/bin/sh
+        echo 'hello from the rpm repository'

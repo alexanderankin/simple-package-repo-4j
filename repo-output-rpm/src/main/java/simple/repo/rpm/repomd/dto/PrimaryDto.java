@@ -1,4 +1,3 @@
-/*
 package simple.repo.rpm.repomd.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -247,4 +246,3 @@ public class PrimaryDto {
         String pre;
     }
 }
-*/
