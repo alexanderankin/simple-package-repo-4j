@@ -243,7 +243,6 @@ public class RpmPackageBuilder implements PackageBuilder {
 
         addFileEntries(entries, files, buildTime);
 
-        entries.add(int32(RpmTag.RPMTAG_ARCHIVESIZE, payload.uncompressed().length));
         entries.add(new SignatureEntry()
                 .setTag(RpmTag.RPMTAG_PAYLOADFORMAT)
                 .setType(RpmTagType.RPM_STRING_TYPE)
@@ -353,6 +352,7 @@ public class RpmPackageBuilder implements PackageBuilder {
     }
 
     private byte[] buildSection(List<SignatureEntry> entries, RpmTags regionTag) {
+        entries.sort(Comparator.comparingInt(entry -> entry.getTag().getTagValue()));
         var regionEntryCount = entries.size() + 1;
         var trailer = ByteBuffer.allocate(16)
                 .putInt(regionTag.getTagValue())
