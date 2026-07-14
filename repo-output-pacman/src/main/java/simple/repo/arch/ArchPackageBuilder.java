@@ -114,6 +114,11 @@ public class ArchPackageBuilder implements PackageBuilder {
                 .setFileIntegrity(FileIntegrity.of(content, fileName(packageConfig)));
     }
 
+    @Override
+    public PackageConfig parseConfigFromPackage(byte[] downloadedPackage) {
+        throw new UnsupportedOperationException();
+    }
+
     //<editor-fold desc="to data">
     private ArchPkgFilesData.BuildInfoData toBuildInfoData(PackageConfig packageConfig) {
         return ArchPkgFilesData.BuildInfoData.builder()

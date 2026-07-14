@@ -79,7 +79,7 @@ public class SimpleRepoApplication {
 
             @NotNull
             @Exists
-            @CommandLine.Option(names = {"-c", "--config"})
+            @CommandLine.Option(names = {"-c", "--config"}, required = true)
             Path configFile;
 
             @CommandLine.ArgGroup(multiplicity = "1")

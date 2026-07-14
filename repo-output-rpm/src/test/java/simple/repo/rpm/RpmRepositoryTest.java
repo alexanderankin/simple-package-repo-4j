@@ -13,7 +13,7 @@ class RpmRepositoryTest {
     })
     void test(String poolPath) {
         var rpmRepo = new RpmRepository().setPoolPath(poolPath);
-        rpmRepo.coordinate(List.of())
+        rpmRepo.coordinate(List.of("10", "x86_64", "name"));
     }
 
 }

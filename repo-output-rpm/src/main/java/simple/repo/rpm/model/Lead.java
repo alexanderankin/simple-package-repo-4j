@@ -65,8 +65,8 @@ public class Lead {
     }
 
     public Lead setNameString(String nameString) {
+        Arrays.fill(this.name, (byte) 0);
         if (nameString == null || nameString.isEmpty()) {
-            Arrays.fill(this.name, (byte) 0);
             return this;
         }
 
@@ -140,7 +140,7 @@ public class Lead {
         // mipsel(4),
         // ppc(5),
         // mips64el(11),
-        armv8hl(12),
+        // armv8hl(12),
         aarch64(19),
         riscv64(22);
 
