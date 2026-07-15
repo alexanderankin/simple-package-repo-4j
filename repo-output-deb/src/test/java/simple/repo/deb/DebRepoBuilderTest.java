@@ -3,13 +3,12 @@ package simple.repo.deb;
 import org.junit.jupiter.api.Test;
 import simple.repo.model.*;
 
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -92,7 +91,69 @@ class DebRepoBuilderTest {
         assertTrue(textFiles.get("jammy/Release").contains("main/binary-amd64/Packages.gz"));
     }
 
-    static PackageConfig packageConfig(String name, Arch arch) {
+    @Test
+    void buildsInstallableTwoCodenameByTwoArchitectureRepository() throws Exception {
+        var packageBuilder = new DebPackageBuilder();
+        var repoBuilder = new DebRepoBuilder();
+        var amd64Config = executablePackage("matrix-hello-amd64", Arch.amd64);
+        var arm64Config = executablePackage("matrix-hello-arm64", Arch.arm64);
+        var amd64Package = packageBuilder.buildPackage(amd64Config);
+        var arm64Package = packageBuilder.buildPackage(arm64Config);
+        var amd64Index = new IndexFile()
+                .setPackageConfig(amd64Config).setFileIntegrity(amd64Package.getFileIntegrity());
+        var arm64Index = new IndexFile()
+                .setPackageConfig(arm64Config).setFileIntegrity(arm64Package.getFileIntegrity());
+
+        var builder = repoBuilder.repoBuilder(new DebRepoBuilder.RepoConfig(), Instant.EPOCH);
+        builder.buildCodename("noble").addPackage(amd64Index).addPackage(arm64Index).build()
+                .buildCodename("resolute").addPackage(amd64Index).addPackage(arm64Index).build();
+        var metadata = repoBuilder.buildRepo(builder.build());
+        var published = new LinkedHashMap<String, FileIntegrityWithContent>();
+        metadata.forEach((path, file) -> published.put("dists/" + path, file));
+        for (var codename : List.of("noble", "resolute")) {
+            published.put("pool/" + codename + "/" + amd64Package.getFileIntegrity().getPath(), amd64Package);
+            published.put("pool/" + codename + "/" + arm64Package.getFileIntegrity().getPath(), arm64Package);
+        }
+
+        for (var codename : List.of("noble", "resolute")) {
+            var release = text(published.get("dists/" + codename + "/Release"));
+            assertTrue(release.contains("Architectures: amd64 arm64"));
+            for (var architecture : List.of("amd64", "arm64")) {
+                var indexPath = "dists/" + codename + "/main/binary-" + architecture + "/Packages.gz";
+                assertTrue(published.containsKey(indexPath), () -> "missing " + indexPath);
+                assertTrue(release.contains("main/binary-" + architecture + "/Packages.gz"));
+                var packages = gunzip(published.get(indexPath));
+                var packageFile = architecture.equals("amd64") ? amd64Package : arm64Package;
+                assertTrue(packages.contains("Package: matrix-hello-" + architecture + "\n"));
+                assertTrue(packages.contains("Architecture: " + architecture + "\n"));
+                assertTrue(packages.contains("Filename: pool/" + codename + "/"
+                        + packageFile.getFileIntegrity().getPath() + "\n"));
+                assertTrue(published.containsKey("pool/" + codename + "/"
+                        + packageFile.getFileIntegrity().getPath()));
+            }
+        }
+    }
+
+    private PackageConfig executablePackage(String name, Arch arch) {
+        return packageConfig(name, arch)
+                .setFiles(new PackageConfig.FileSpec().setControlFiles(List.of()).setDataFiles(List.of(
+                        new PackageConfig.PkgFileSpec.TextPkgFileSpec()
+                                .setContent("#!/bin/sh\necho 'hello from matrix-hello'\n")
+                                .setPath("/usr/bin/matrix-hello")
+                                .setMode(0x755))));
+    }
+
+    private String text(FileIntegrityWithContent file) {
+        return new String(file.getContent(), StandardCharsets.UTF_8);
+    }
+
+    private String gunzip(FileIntegrityWithContent file) throws Exception {
+        try (var input = new GZIPInputStream(new ByteArrayInputStream(file.getContent()))) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    PackageConfig packageConfig(String name, Arch arch) {
         return new PackageConfig()
                 .setMeta(new PackageConfig.PackageMeta().setArch(arch).setVersion("0.0.1").setName(name))
                 .setControl(new PackageConfig.ControlExtras().setMaintainer("maintainer").setDescription("description"))
