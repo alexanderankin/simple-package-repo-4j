@@ -47,10 +47,12 @@ public class SimpleRepoApplication {
     LogbackVerbosityMixin logbackVerbosityMixin;
 
     static void main(String[] args) {
-        var commandLine = new CommandLine(SimpleRepoApplication.class)
+        System.exit(commandLine().execute(args));
+    }
+
+    static CommandLine commandLine() {
+        return new CommandLine(SimpleRepoApplication.class)
                 .setCaseInsensitiveEnumValuesAllowed(true);
-        int exitCode = commandLine.execute(args);
-        System.exit(exitCode);
     }
 
     static SimpleRepoCli instance() {
@@ -236,6 +238,9 @@ public class SimpleRepoApplication {
     public static class Keys {
         @CommandLine.Command(name = "gen", description = "")
         public static class Gen implements Runnable {
+            @CommandLine.Spec
+            CommandLine.Model.CommandSpec spec;
+
             @CommandLine.Option(names = {"-n", "--name"})
             String name;
             @CommandLine.Option(names = {"-e", "--email"})
@@ -251,8 +256,8 @@ public class SimpleRepoApplication {
                 var keyrings = KeysUtils.genKeyPairKeyring(name, email, profile);
 
                 if (keyOutput == null) {
-                    System.out.println(keyrings.getPublicKey());
-                    System.out.println(keyrings.getPrivateKey());
+                    spec.commandLine().getOut().println(keyrings.getPublicKey());
+                    spec.commandLine().getOut().println(keyrings.getPrivateKey());
                 } else if (keyOutput.outputBoth != null) {
                     try (var out = Files.newOutputStream(keyOutput.outputBoth);
                          var writer = new PrintWriter(out)) {
@@ -286,6 +291,9 @@ public class SimpleRepoApplication {
 
         @CommandLine.Command(name = "sign", description = "")
         public static class Sign {
+            @CommandLine.Spec
+            CommandLine.Model.CommandSpec spec;
+
             @SneakyThrows
             @CommandLine.Command(name = "clear", aliases = {"clear-sign", "inline"}, description = "")
             void clearSign(@CommandLine.Mixin SignArgs a) {
@@ -305,7 +313,7 @@ public class SimpleRepoApplication {
                 if (a.outputFile != null) {
                     Files.write(a.outputFile, bytes);
                 } else {
-                    System.out.println(new String(bytes, StandardCharsets.UTF_8));
+                    spec.commandLine().getOut().println(new String(bytes, StandardCharsets.UTF_8));
                 }
             }
 
@@ -332,13 +340,16 @@ public class SimpleRepoApplication {
         @Accessors(chain = true)
         @CommandLine.Command(name = "verify", description = "")
         public static class Verify {
+            @CommandLine.Spec
+            CommandLine.Model.CommandSpec spec;
+
             @SneakyThrows
             @CommandLine.Command(name = "clear", aliases = {"clear-sign", "inline"}, description = "")
             void clear(@CommandLine.Mixin VerifyArgs a) {
                 var instance = instance();
                 instance.validate(null, a);
                 var r = KeysUtils.verifySignatureInline(Files.readAllBytes(a.publicKey), Files.readAllBytes(a.inputFile));
-                System.out.println(instance.jsonMapper.writeValueAsString(r));
+                spec.commandLine().getOut().println(instance.jsonMapper.writeValueAsString(r));
             }
 
             @SneakyThrows
@@ -352,7 +363,7 @@ public class SimpleRepoApplication {
                         Files.readAllBytes(a.inputFile),
                         Files.readAllBytes(data)
                 );
-                System.out.println(instance.jsonMapper.writeValueAsString(r));
+                spec.commandLine().getOut().println(instance.jsonMapper.writeValueAsString(r));
             }
 
             @Data
