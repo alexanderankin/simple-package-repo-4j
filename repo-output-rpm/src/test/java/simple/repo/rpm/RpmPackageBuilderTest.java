@@ -69,6 +69,8 @@ public class RpmPackageBuilderTest {
                 RpmTags.RpmTag.RPMTAG_PAYLOADFORMAT,
                 RpmTags.RpmTag.RPMTAG_PAYLOADCOMPRESSOR,
                 RpmTags.RpmTag.RPMTAG_PAYLOADSHA256)));
+        assertEquals(1, config.getControl().getInstalledSize());
+        assertEquals(12, ByteBuffer.wrap(entry(header, RpmTags.RpmTag.RPMTAG_SIZE).copyByteArray()).getInt());
 
         var headerBytes = java.util.Arrays.copyOfRange(bytes, headerStart, payloadStart);
         var headerAndPayload = java.util.Arrays.copyOfRange(bytes, headerStart, bytes.length);

@@ -83,8 +83,12 @@ public class RpmPackageBuilder implements PackageBuilder {
 
         var buildTime = Instant.now().getEpochSecond();
         var files = readFiles(config);
+        var installedSizeBytes = installedSizeBytes(files);
+        if (config.getControl() != null) {
+            config.getControl().setInstalledSize(Math.toIntExact((installedSizeBytes + 1023L) / 1024L));
+        }
         var payload = buildPayload(files, buildTime);
-        var header = buildHeader(config, files, payload, buildTime);
+        var header = buildHeader(config, files, payload, buildTime, installedSizeBytes);
         var signature = buildSignature(header, payload);
 
         var out = new ByteArrayOutputStream();
@@ -156,7 +160,11 @@ public class RpmPackageBuilder implements PackageBuilder {
         return new Payload(archive.toByteArray(), compressed.toByteArray());
     }
 
-    private byte[] buildHeader(PackageConfig config, List<PackageFile> files, Payload payload, long buildTime) {
+    private byte[] buildHeader(PackageConfig config,
+                               List<PackageFile> files,
+                               Payload payload,
+                               long buildTime,
+                               long installedSizeBytes) {
         var meta = config.getMeta();
         var control = config.getControl();
         var description = control == null || !StringUtils.hasText(control.getDescription())
@@ -202,7 +210,7 @@ public class RpmPackageBuilder implements PackageBuilder {
                 .setType(RpmTagType.RPM_STRING_TYPE)
                 .setContent(ByteBuffer.wrap("localhost".getBytes(StandardCharsets.UTF_8))));
 
-        entries.add(int32(RpmTag.RPMTAG_SIZE, files.stream().mapToInt(f -> f.content().length).sum()));
+        entries.add(int32(RpmTag.RPMTAG_SIZE, Math.toIntExact(installedSizeBytes)));
 
         entries.add(new SignatureEntry()
                 .setTag(RpmTag.RPMTAG_LICENSE)
@@ -437,6 +445,16 @@ public class RpmPackageBuilder implements PackageBuilder {
     @SuppressWarnings("OctalInteger")
     private int fileMode(PackageConfig.PkgFileSpec spec) {
         return Objects.requireNonNullElse(spec.getMode(), 0644) & 07777;
+    }
+
+    public long installedSizeBytes(PackageConfig config) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(config.getFiles(), "config.files");
+        return installedSizeBytes(readFiles(config));
+    }
+
+    private long installedSizeBytes(List<PackageFile> files) {
+        return files.stream().mapToLong(file -> file.content().length).sum();
     }
 
     private String release(PackageConfig.PackageMeta meta) {

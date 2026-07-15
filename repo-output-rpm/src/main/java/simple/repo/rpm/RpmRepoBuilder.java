@@ -8,9 +8,9 @@ import lombok.experimental.Accessors;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
 import simple.repo.keys.KeysUtils;
+import simple.repo.model.FileIntegrity;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.PackageConfig;
-import simple.repo.packaging.FileSpecReader;
 import simple.repo.rpm.repomd.dto.FileListsDto;
 import simple.repo.rpm.repomd.dto.OtherDto;
 import simple.repo.rpm.repomd.dto.PrimaryDto;
@@ -29,7 +29,6 @@ import java.util.zip.GZIPOutputStream;
 
 public class RpmRepoBuilder {
     private final XmlMapper xmlMapper = new RpmXmlCustomizer().customized(XmlMapper.builder()).build();
-    private final FileSpecReader fileSpecReader = new FileSpecReader();
 
     public RepoBuilder repoBuilder(RepoConfig config) {
         return repoBuilder(config, Instant.now());
@@ -39,8 +38,18 @@ public class RpmRepoBuilder {
         return new RepoBuilder(config, now);
     }
 
-    public PackageMeta packageMeta(PackageConfig config, FileIntegrityWithContent packageFile) {
-        return new PackageMeta().setConfig(config).setPackageFile(packageFile);
+    public PackageMeta packageMeta(PackageConfig config, FileIntegrity packageFile) {
+        var installedSize = config.getControl() == null ? null : config.getControl().getInstalledSize();
+        return packageMeta(config, packageFile,
+                installedSize == null ? null : Math.multiplyExact(installedSize.longValue(), 1024L));
+    }
+
+    public PackageMeta packageMeta(PackageConfig config, FileIntegrity packageFile, Long installedSizeBytes) {
+        return new PackageMeta()
+                .setConfig(config)
+                .setPackageFile(packageFile)
+                .setInstalledSizeBytes(installedSizeBytes)
+                .setFilePaths(filePaths(config));
     }
 
     public Map<String, FileIntegrityWithContent> buildRepo(Repo repo) {
@@ -110,10 +119,10 @@ public class RpmRepoBuilder {
         var config = packageMeta.getConfig();
         var meta = config.getMeta();
         var control = config.getControl();
-        var integrity = packageMeta.getPackageFile().getFileIntegrity();
+        var integrity = packageMeta.getPackageFile();
         var release = release(meta);
         var arch = new RpmPackageBuilder().archName(meta.getArch());
-        var files = filePaths(config);
+        var files = filePaths(packageMeta);
         var provides = new PrimaryDto.Entries().setEntryList(List.of(
                 new PrimaryDto.Entry().setName(meta.getName()).setFlags("EQ")
                         .setEpoch("0").setVer(meta.getVersion()).setRel(release)));
@@ -129,7 +138,7 @@ public class RpmRepoBuilder {
                 .setUrl(control == null ? "" : control.getHomepage())
                 .setTime(new PrimaryDto.Time().setFile(now.getEpochSecond()).setBuild(now.getEpochSecond()))
                 .setSize(new PrimaryDto.Size().setPackageSize((long) integrity.getSize())
-                        .setInstalled(installedSize(config)).setArchive(installedSize(config)))
+                        .setInstalled(installedSizeBytes(packageMeta)).setArchive(installedSizeBytes(packageMeta)))
                 .setLocation(new PrimaryDto.Location().setHref("pool/" + integrity.getPath()))
                 .setFormat(new PrimaryDto.Format()
                         .setLicense("unknown")
@@ -142,11 +151,11 @@ public class RpmRepoBuilder {
     private FileListsDto filelists(List<PackageMeta> packages) {
         return new FileListsDto().setPackageCount(packages.size()).setPackageData(packages.stream()
                 .map(meta -> new FileListsDto.Package()
-                        .setPkgId(meta.getPackageFile().getFileIntegrity().getSha256())
+                        .setPkgId(meta.getPackageFile().getSha256())
                         .setName(meta.getConfig().getMeta().getName())
                         .setArch(new RpmPackageBuilder().archName(meta.getConfig().getMeta().getArch()))
                         .setVersion(version(meta.getConfig().getMeta()))
-                        .setFileItems(filePaths(meta.getConfig()).stream()
+                        .setFileItems(filePaths(meta).stream()
                                 .map(path -> new FileListsDto.Package.FileItem().setText(path)).toList()))
                 .toList());
     }
@@ -154,7 +163,7 @@ public class RpmRepoBuilder {
     private OtherDto other(List<PackageMeta> packages) {
         return new OtherDto().setPackageCount(packages.size()).setPackages(packages.stream()
                 .map(meta -> new OtherDto.PackageEntry()
-                        .setPkgId(meta.getPackageFile().getFileIntegrity().getSha256())
+                        .setPkgId(meta.getPackageFile().getSha256())
                         .setName(meta.getConfig().getMeta().getName())
                         .setArch(new RpmPackageBuilder().archName(meta.getConfig().getMeta().getArch()))
                         .setVersion(version(meta.getConfig().getMeta()))
@@ -173,12 +182,13 @@ public class RpmRepoBuilder {
                 .toList();
     }
 
-    private long installedSize(PackageConfig config) {
-        if (config.getControl() != null && config.getControl().getInstalledSize() != null) {
-            return config.getControl().getInstalledSize() * 1024L;
-        }
-        return Objects.requireNonNullElse(config.getFiles().getDataFiles(), List.<PackageConfig.PkgFileSpec>of())
-                .stream().mapToLong(spec -> fileSpecReader.readContent(spec).length).sum();
+    private List<String> filePaths(PackageMeta packageMeta) {
+        return Objects.requireNonNullElse(packageMeta.getFilePaths(), List.of());
+    }
+
+    private long installedSizeBytes(PackageMeta packageMeta) {
+        return Objects.requireNonNull(packageMeta.getInstalledSizeBytes(),
+                "packageMeta.installedSizeBytes is required to build RPM repository metadata");
     }
 
     private String summary(PackageConfig config) {
@@ -248,11 +258,36 @@ public class RpmRepoBuilder {
                 var config = packageMeta.getConfig();
                 var meta = config.getMeta();
                 var control = config.getControl();
-                var integrity = packageMeta.getPackageFile().getFileIntegrity();
+                var integrity = packageMeta.getPackageFile();
                 var key = i + 1;
-                statement.accept("INSERT INTO packages VALUES (" + key + "," + q(integrity.getSha256()) + "," + q(meta.getName()) + "," + q(new RpmPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + "," + q(summary(config)) + "," + q(description(config)) + "," + q(control == null ? "" : control.getHomepage()) + ",0,0,'unknown',''," + q(control == null ? "Applications/System" : control.getSection()) + ",'localhost','',0,0," + q(packager(config)) + "," + integrity.getSize() + "," + installedSize(config) + "," + installedSize(config) + "," + q("pool/" + integrity.getPath()) + ",'','sha256')");
-                statement.accept("INSERT INTO provides VALUES (" + q(meta.getName()) + ",'EQ','0'," + q(meta.getVersion()) + "," + q(release(meta)) + "," + key + ",0)");
-                for (var path : filePaths(config)) {
+                statement.accept("INSERT INTO packages VALUES (" + key + "," +
+                        q(integrity.getSha256()) + "," +
+                        q(meta.getName()) + "," +
+                        q(new RpmPackageBuilder().archName(meta.getArch())) + "," +
+                        q(meta.getVersion()) + "," +
+                        "'0'," +
+                        q(release(meta)) + "," +
+                        q(summary(config)) + "," +
+                        q(description(config)) + "," +
+                        q(control == null ? "" : control.getHomepage()) + "," +
+                        "0," +
+                        "0," +
+                        "'unknown'," +
+                        "''," +
+                        q(control == null ? "Applications/System" : control.getSection()) + ",'localhost','',0,0," +
+                        q(packager(config)) + "," +
+                        integrity.getSize() + "," +
+                        installedSizeBytes(packageMeta) + "," +
+                        installedSizeBytes(packageMeta) + "," +
+                        q("pool/" + integrity.getPath()) + ",'','sha256')");
+                statement.accept("INSERT INTO provides VALUES (" + q(meta.getName()) + "," +
+                        "'EQ'," +
+                        "'0'," +
+                        q(meta.getVersion()) + "," +
+                        q(release(meta)) + "," +
+                        key + "," +
+                        "0)");
+                for (var path : filePaths(packageMeta)) {
                     statement.accept("INSERT INTO files VALUES (" + q(path) + ",'file'," + key + ")");
                 }
             }
@@ -267,8 +302,8 @@ public class RpmRepoBuilder {
                 var packageMeta = packages.get(i);
                 var meta = packageMeta.getConfig().getMeta();
                 var key = i + 1;
-                statement.accept("INSERT INTO packages VALUES (" + key + "," + q(packageMeta.getPackageFile().getFileIntegrity().getSha256()) + "," + q(meta.getName()) + "," + q(new RpmPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
-                for (var path : filePaths(packageMeta.getConfig())) {
+                statement.accept("INSERT INTO packages VALUES (" + key + "," + q(packageMeta.getPackageFile().getSha256()) + "," + q(meta.getName()) + "," + q(new RpmPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
+                for (var path : filePaths(packageMeta)) {
                     var slash = path.lastIndexOf('/');
                     statement.accept("INSERT INTO filelist VALUES (" + key + "," + q(path.substring(0, slash + 1)) + "," + q(path.substring(slash + 1)) + ",'f')");
                 }
@@ -283,7 +318,7 @@ public class RpmRepoBuilder {
             for (var i = 0; i < packages.size(); i++) {
                 var packageMeta = packages.get(i);
                 var meta = packageMeta.getConfig().getMeta();
-                statement.accept("INSERT INTO packages VALUES (" + (i + 1) + "," + q(packageMeta.getPackageFile().getFileIntegrity().getSha256()) + "," + q(meta.getName()) + "," + q(new RpmPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
+                statement.accept("INSERT INTO packages VALUES (" + (i + 1) + "," + q(packageMeta.getPackageFile().getSha256()) + "," + q(meta.getName()) + "," + q(new RpmPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
             }
         });
     }
@@ -345,7 +380,9 @@ public class RpmRepoBuilder {
     @Accessors(chain = true)
     public static class PackageMeta {
         PackageConfig config;
-        FileIntegrityWithContent packageFile;
+        FileIntegrity packageFile;
+        Long installedSizeBytes;
+        List<String> filePaths;
     }
 
     @Data

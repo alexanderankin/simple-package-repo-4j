@@ -9,6 +9,7 @@ import simple.repo.keys.KeysUtils;
 import simple.repo.keys.SupportedKeyGenerationProfile;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
+import simple.repo.model.IndexFile;
 import simple.repo.model.PackageConfig;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
@@ -27,12 +28,18 @@ public class RpmRepoBuilderITest {
         var yaml = new String(getClass().getResourceAsStream("example-rpm-repository.yaml").readAllBytes(),
                 StandardCharsets.UTF_8).replace("__CURRENT_ARCH__", Arch.current().name());
         var packageConfig = YAML_MAPPER.readValue(yaml, PackageConfig.class);
-        var packageFile = new RpmPackageBuilder().buildPackage(packageConfig);
+
+        var packageBuilder = new RpmPackageBuilder();
+        var installedSizeBytes = packageBuilder.installedSizeBytes(packageConfig);
+        var packageFile = packageBuilder.buildPackage(packageConfig);
+        var indexFile = new IndexFile().setFileIntegrity(packageFile.getFileIntegrity()).setPackageConfig(packageConfig);
+
         var builder = new RpmRepoBuilder();
         var now = Instant.ofEpochSecond(1778861567L);
         var repo = builder.repoBuilder(new RpmRepoBuilder.RepoConfig(), now)
                 .buildVersion("10")
-                .addPackage(builder.packageMeta(packageConfig, packageFile))
+                .addPackage(builder.packageMeta(
+                        packageConfig, packageFile.getFileIntegrity(), installedSizeBytes))
                 .build()
                 .build();
         var repoFiles = builder.buildRepo(repo);
