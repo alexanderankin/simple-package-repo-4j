@@ -38,8 +38,7 @@ public class RpmRepoBuilderITest {
         var now = Instant.ofEpochSecond(1778861567L);
         var repo = builder.repoBuilder(new RpmRepoBuilder.RepoConfig(), now)
                 .buildVersion("10")
-                .addPackage(builder.packageMeta(
-                        packageConfig, packageFile.getFileIntegrity(), installedSizeBytes))
+                .addPackage(new IndexFile().setPackageConfig(packageConfig).setFileIntegrity(packageFile.getFileIntegrity()))
                 .build()
                 .build();
         var repoFiles = builder.buildRepo(repo);

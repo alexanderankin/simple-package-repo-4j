@@ -3,6 +3,7 @@ package simple.repo.rpm;
 import org.junit.jupiter.api.Test;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrity;
+import simple.repo.model.IndexFile;
 import simple.repo.model.PackageConfig;
 
 import java.time.Instant;
@@ -23,15 +24,14 @@ class RpmRepoBuilderTest {
                         .setMaintainer("maintainer")
                         .setDescription("built from index metadata"))
                 .setFiles(new PackageConfig.FileSpec());
+        new RpmPackageBuilder().buildPackage(config);
         var packageIntegrity = new FileIntegrity()
                 .setPath("index-only-package-0.0.1-1.x86_64.rpm")
                 .setSize(0x1234)
                 .setSha256("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-        var packageMeta = new RpmRepoBuilder.PackageMeta()
-                .setConfig(config)
-                .setPackageFile(packageIntegrity)
-                .setInstalledSizeBytes(0x4321L)
-                .setFilePaths(List.of("/opt/index-only-package/bin/example"));
+        var packageMeta = new IndexFile()
+                .setPackageConfig(config)
+                .setFileIntegrity(packageIntegrity);
         var builder = new RpmRepoBuilder();
 
         var repo = builder.repoBuilder(new RpmRepoBuilder.RepoConfig(), Instant.EPOCH)

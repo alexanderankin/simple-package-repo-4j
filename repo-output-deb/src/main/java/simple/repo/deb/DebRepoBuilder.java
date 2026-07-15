@@ -8,7 +8,7 @@ import lombok.experimental.Accessors;
 import simple.repo.keys.KeysUtils;
 import simple.repo.model.FileIntegrity;
 import simple.repo.model.FileIntegrityWithContent;
-import simple.repo.model.PackageConfig;
+import simple.repo.model.IndexFile;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -20,10 +20,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
+@Data
+@Accessors(chain = true)
 public class DebRepoBuilder {
     static final DateTimeFormatter RELEASE_DATE = DateTimeFormatter
             .ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US)
             .withZone(ZoneOffset.UTC);
+    private DebPackageBuilder debPackageBuilder = new DebPackageBuilder();
 
     public RepoBuilder repoBuilder(RepoConfig config) {
         return new RepoBuilder(config, Instant.now());
@@ -31,10 +34,6 @@ public class DebRepoBuilder {
 
     public RepoBuilder repoBuilder(RepoConfig config, Instant now) {
         return new RepoBuilder(config, now);
-    }
-
-    public PackageMeta packageMeta(PackageConfig config, FileIntegrityWithContent packageFile) {
-        return new PackageMeta().setConfig(config).setPackageFile(packageFile);
     }
 
     public Map<String, FileIntegrityWithContent> buildRepo(Repo repo) {
@@ -68,19 +67,19 @@ public class DebRepoBuilder {
         return signed;
     }
 
-    private String packagesIndex(String codename, List<PackageMeta> packages) {
+    private String packagesIndex(String codename, List<IndexFile> packages) {
         return packages.stream().map(meta -> packageEntry(codename, meta)).collect(Collectors.joining("\n"));
     }
 
-    private String packageEntry(String codename, PackageMeta packageMeta) {
-        var config = packageMeta.getConfig();
+    private String packageEntry(String codename, IndexFile packageMeta) {
+        var config = packageMeta.getPackageConfig();
         var meta = config.getMeta();
         var control = config.getControl();
-        var integrity = packageMeta.getPackageFile().getFileIntegrity();
+        var integrity = packageMeta.getFileIntegrity();
         var out = new StringBuilder()
                 .append("Package: ").append(meta.getName()).append('\n')
                 .append("Version: ").append(meta.getVersion()).append('\n')
-                .append("Architecture: ").append(new DebPackageBuilder().archName(meta.getArch())).append('\n')
+                .append("Architecture: ").append(debPackageBuilder.archName(meta.getArch())).append('\n')
                 .append("Maintainer: ").append(control.getMaintainer()).append('\n');
         appendOptional(out, "Depends", control.getDepends());
         appendOptional(out, "Conflicts", control.getConflicts());
@@ -164,13 +163,6 @@ public class DebRepoBuilder {
 
     @Data
     @Accessors(chain = true)
-    public static class PackageMeta {
-        PackageConfig config;
-        FileIntegrityWithContent packageFile;
-    }
-
-    @Data
-    @Accessors(chain = true)
     public static class Repo {
         Map<String, CodenameSection> codenameSections;
 
@@ -228,13 +220,15 @@ public class DebRepoBuilder {
 
     @RequiredArgsConstructor
     public class CodenameSectionBuilder {
-        @NonNull final RepoBuilder repoBuilder;
-        @NonNull final Repo.CodenameSection section;
-        final List<PackageMeta> packages = new ArrayList<>();
+        @NonNull
+        final RepoBuilder repoBuilder;
+        @NonNull
+        final Repo.CodenameSection section;
+        final List<IndexFile> packages = new ArrayList<>();
 
-        public CodenameSectionBuilder addPackage(PackageMeta packageMeta) {
-            var config = packageMeta.getConfig();
-            section.arches().add(new DebPackageBuilder().archName(config.getMeta().getArch()));
+        public CodenameSectionBuilder addPackage(IndexFile packageMeta) {
+            var config = packageMeta.getPackageConfig();
+            section.arches().add(debPackageBuilder.archName(config.getMeta().getArch()));
             section.components().add(config.getControl().getSection());
             packages.add(packageMeta);
             return this;
@@ -244,8 +238,8 @@ public class DebRepoBuilder {
             for (var component : section.components()) {
                 for (var arch : section.arches()) {
                     var matching = packages.stream()
-                            .filter(meta -> component.equals(meta.getConfig().getControl().getSection()))
-                            .filter(meta -> arch.equals(new DebPackageBuilder().archName(meta.getConfig().getMeta().getArch())))
+                            .filter(meta -> component.equals(meta.getPackageConfig().getControl().getSection()))
+                            .filter(meta -> arch.equals(debPackageBuilder.archName(meta.getPackageConfig().getMeta().getArch())))
                             .toList();
                     var path = component + "/binary-" + arch + "/Packages";
                     var content = packagesIndex(section.getCodename(), matching).getBytes(StandardCharsets.UTF_8);

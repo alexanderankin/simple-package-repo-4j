@@ -9,6 +9,7 @@ import simple.repo.keys.KeysUtils;
 import simple.repo.keys.SupportedKeyGenerationProfile;
 import simple.repo.model.Arch;
 import simple.repo.model.FileIntegrityWithContent;
+import simple.repo.model.IndexFile;
 import simple.repo.model.PackageConfig;
 
 import java.nio.charset.StandardCharsets;
@@ -41,14 +42,14 @@ class DebRepoBuilderITest {
                 common-package
                 """, "/usr/bin/jqr", "common-package", "jq-version-reporter");
 
-        var packageFiles = List.of(
+        List<FileIntegrityWithContent> packageFiles = List.of(
                 packageBuilder.buildPackage(common),
                 packageBuilder.buildPackage(reporter),
                 packageBuilder.buildPackage(alternate));
-        var packageMetas = List.of(
-                repoBuilder.packageMeta(common, packageFiles.get(0)),
-                repoBuilder.packageMeta(reporter, packageFiles.get(1)),
-                repoBuilder.packageMeta(alternate, packageFiles.get(2)));
+        List<IndexFile> packageMetas = List.of(
+                new IndexFile().setPackageConfig(common).setFileIntegrity(packageFiles.get(0).getFileIntegrity()),
+                new IndexFile().setPackageConfig(reporter).setFileIntegrity(packageFiles.get(1).getFileIntegrity()),
+                new IndexFile().setPackageConfig(alternate).setFileIntegrity(packageFiles.get(2).getFileIntegrity()));
         var builder = repoBuilder.repoBuilder(new DebRepoBuilder.RepoConfig(), Instant.ofEpochMilli(1751384953000L));
         builder.buildCodename("bullseye").addPackage(packageMetas.get(0)).addPackage(packageMetas.get(1)).addPackage(packageMetas.get(2)).build()
                 .buildCodename("bookworm").addPackage(packageMetas.get(0)).addPackage(packageMetas.get(1)).addPackage(packageMetas.get(2)).build();
@@ -80,7 +81,7 @@ class DebRepoBuilderITest {
                         .setMaintainer("maintainer").setDescription("description"))
                 .setFiles(new PackageConfig.FileSpec().setDataFiles(List.of()).setControlFiles(List.of()));
         var packageFile = packageBuilder.buildPackage(config);
-        var packageMeta = repoBuilder.packageMeta(config, packageFile);
+        var packageMeta = new IndexFile().setPackageConfig(config).setFileIntegrity(packageFile.getFileIntegrity());
         var key = KeysUtils.genKeyPairKeyring(
                 "user", "user@host.tld", SupportedKeyGenerationProfile.RSA4096);
         var privateKey = key.getPrivateKey().getBytes(StandardCharsets.UTF_8);

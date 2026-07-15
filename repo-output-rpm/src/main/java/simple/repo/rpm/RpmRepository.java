@@ -8,6 +8,7 @@ import simple.repo.io.RepoIo;
 import simple.repo.model.PackageConfig;
 import simple.repo.packaging.PackageBuilder;
 import simple.repo.repository.Repository;
+import simple.repo.repository.RepositoryBuilder;
 
 import java.util.Iterator;
 import java.util.List;

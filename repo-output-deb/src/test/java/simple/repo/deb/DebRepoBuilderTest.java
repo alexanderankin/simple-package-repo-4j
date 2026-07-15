@@ -1,10 +1,7 @@
 package simple.repo.deb;
 
 import org.junit.jupiter.api.Test;
-import simple.repo.model.Arch;
-import simple.repo.model.FileIntegrity;
-import simple.repo.model.FileIntegrityWithContent;
-import simple.repo.model.PackageConfig;
+import simple.repo.model.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -67,7 +64,7 @@ class DebRepoBuilderTest {
                 .setFileIntegrity(FileIntegrity.of("hello".getBytes(StandardCharsets.UTF_8), "hello_0.0.1_amd64.deb").setSize(10));
         var repo = builder.repoBuilder(new DebRepoBuilder.RepoConfig(), Instant.ofEpochMilli(1751437482822L))
                 .buildCodename("jammy")
-                .addPackage(builder.packageMeta(config, packageFile))
+                .addPackage(new IndexFile().setPackageConfig(config).setFileIntegrity(packageFile.getFileIntegrity()))
                 .build()
                 .build();
         var files = builder.buildRepo(repo);
