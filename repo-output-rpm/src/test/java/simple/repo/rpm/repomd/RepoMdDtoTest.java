@@ -108,9 +108,11 @@ class RepoMdDtoTest {
                                 .setDatabaseVersion(10)
                 ));
 
-        var dtoAsString = new RpmXmlCustomizer().customized(XmlMapper.builder()).build().writeValueAsString(dto);
+        var xmlMapper = new RpmXmlCustomizer().customized(XmlMapper.builder()).build();
+        var dtoAsString = xmlMapper.writeValueAsString(dto);
         // System.out.println(dtoAsString);
         // noinspection ALL
         assertEquals(new String(getClass().getResourceAsStream("example").readAllBytes()).strip(), dtoAsString.strip());
+        assertEquals(timestamp, xmlMapper.readValue(dtoAsString, RepoMdDto.class).getRevision());
     }
 }

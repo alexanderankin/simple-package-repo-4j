@@ -3,11 +3,23 @@ package simple.repo.cli;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.testcontainers.containers.Container;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.images.builder.Transferable;
+import simple.repo.deb.DebArch;
+import simple.repo.model.Arch;
+import simple.repo.model.FileIntegrity;
+import simple.repo.model.IndexFile;
+import simple.repo.model.PackageConfig;
+import simple.repo.packaging.PackageBuilder;
+import simple.repo.rpm.RpmArch;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,6 +53,216 @@ class SimpleRepoApplicationITest {
         String diagnostic() {
             return "command: " + String.join(" ", command) + "\nexit: " + exitCode
                     + "\nstdout:\n" + stdout + "\nstderr:\n" + stderr;
+        }
+    }
+
+    @Nested
+    class ReposITest {
+        @Test
+        void installsDebPackagesByNameFromSignedFileRepositoryBuiltByEveryWorkflow() throws Exception {
+            var fixture = buildRepository("deb", "trixie", DebArch.fromArch(Arch.current()).name(), null);
+
+            try (var container = repositoryContainer("debian:13-slim", true)) {
+                copyRepository(container, fixture.root());
+                container.start();
+
+                assertExecSuccess(container.execInContainer("rm", "-f", "/etc/apt/sources.list"));
+                assertExecSuccess(container.execInContainer("rm", "-rf", "/etc/apt/sources.list.d/"));
+                assertExecSuccess(container.execInContainer("sh", "-c", "echo 'deb [signed-by=/tmp/repo/dists/"
+                        + fixture.target() + "/repository.asc] file:/tmp/repo " + fixture.target()
+                        + " main' > /etc/apt/sources.list"));
+                assertExecSuccess(container.execInContainer("apt-get", "update"));
+                var install = new ArrayList<>(List.of("apt-get", "install", "-y"));
+                install.addAll(fixture.packageNames());
+                assertExecSuccess(container.execInContainer(install.toArray(String[]::new)));
+                assertInstalledExecutables(container, fixture.packageNames());
+            }
+        }
+
+        @Test
+        void installsRpmPackagesByNameFromSignedFileRepositoryBuiltByEveryWorkflow() throws Exception {
+            var rpmArch = RpmArch.fromArch(Arch.current()).name();
+            var fixture = buildRepository("rpm", "10", DebArch.fromArch(Arch.current()).name(), "el10");
+            var partition = fixture.target() + "/" + rpmArch;
+            var repoConfig = """
+                    [local]
+                    name=simple-repo CLI integration repository
+                    baseurl=file:///tmp/repo/%s
+                    enabled=1
+                    gpgcheck=0
+                    repo_gpgcheck=1
+                    gpgkey=file:///tmp/repo/%s/repository.asc
+                    metadata_expire=0
+                    """.formatted(partition, partition);
+
+            try (var container = repositoryContainer("rockylinux/rockylinux:10", false)) {
+                copyRepository(container, fixture.root());
+                container.withCopyToContainer(Transferable.of(repoConfig), "/tmp/local.repo");
+                container.start();
+
+                assertExecSuccess(container.execInContainer(
+                        "find", "/etc/yum.repos.d", "-type", "f", "-name", "*.repo", "-delete"));
+                assertExecSuccess(container.execInContainer("cp", "/tmp/local.repo", "/etc/yum.repos.d/local.repo"));
+                assertExecSuccess(container.execInContainer("dnf", "clean", "all"));
+                var install = new ArrayList<>(List.of("dnf", "install", "-y"));
+                install.addAll(fixture.packageNames());
+                assertExecSuccess(container.execInContainer(install.toArray(String[]::new)));
+                assertInstalledExecutables(container, fixture.packageNames());
+            }
+        }
+
+        private RepoFixture buildRepository(String type, String target, String arch, String elVersion) throws Exception {
+            var root = temporaryDirectory.resolve(type + "-repository");
+            Files.createDirectories(root);
+            var keys = generateRepoKeys(type);
+            var scan = writePackageYaml(type + "-scan", arch, elVersion);
+            var configA = writePackageYaml(type + "-config-a", arch, null);
+            var configB = writePackageYaml(type + "-config-b", arch, null);
+            var index = writePackageYaml(type + "-index", arch, elVersion);
+            var packageNames = List.of(type + "-scan", type + "-config-a", type + "-config-b", type + "-index");
+
+            var scanCoordinate = placeBuiltPackage(type, target, root, scan);
+            indexPackage(type, root, scan, scanCoordinate);
+            assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", root.toUri().toString(),
+                    "--target", target, "-P", keys.publicKey().toString(), "-S", keys.secretKey().toString(),
+                    "scan"));
+
+            assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", root.toUri().toString(),
+                    "--target", target, "-P", keys.publicKey().toString(), "-S", keys.secretKey().toString(),
+                    "add", "-c", configA.toString(), configB.toString()));
+
+            var indexPackageCoordinate = placeBuiltPackage(type, target, root, index);
+            indexPackage(type, root, index, indexPackageCoordinate);
+            assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", root.toUri().toString(),
+                    "-P", keys.publicKey().toString(), "-S", keys.secretKey().toString(),
+                    "add", "-i",
+                    indexPackageCoordinate + ".spr4j-index.json"));
+
+            if (type.equals("deb")) {
+                assertTrue(Files.isRegularFile(root.resolve("dists/" + target + "/InRelease")));
+                assertTrue(Files.isRegularFile(root.resolve("dists/" + target + "/Release.gpg")));
+                assertTrue(Files.isRegularFile(root.resolve("dists/" + target + "/repository.asc")));
+            } else {
+                var partition = target + "/" + RpmArch.fromArch(Arch.current()).name();
+                assertTrue(Files.isRegularFile(root.resolve(partition + "/repodata/repomd.xml")));
+                assertTrue(Files.isRegularFile(root.resolve(partition + "/repodata/repomd.xml.asc")));
+                assertTrue(Files.isRegularFile(root.resolve(partition + "/repository.asc")));
+            }
+            return new RepoFixture(root, target, packageNames);
+        }
+
+        private Path writePackageYaml(String name, String arch, String elVersion) throws Exception {
+            var yaml = """
+                    meta:
+                      arch: %s
+                      name: %s
+                      version: 1.0.0
+                      releaseVersion: "1"
+                    %scontrol:
+                      maintainer: simple-repo integration test
+                      description: package built by the %s CLI workflow
+                    files:
+                      controlFiles: []
+                      dataFiles:
+                        - type: text
+                          path: /opt/simple-repo-cli/%s
+                          mode: 0x755
+                          content: |
+                            #!/bin/sh
+                            echo '%s'
+                    """.formatted(arch, name,
+                    elVersion == null ? "" : "  elVersion: " + elVersion + "\n",
+                    name, name, name);
+            var path = temporaryDirectory.resolve(name + ".yaml");
+            Files.writeString(path, yaml);
+            return path;
+        }
+
+        private String placeBuiltPackage(String type, String target, Path repository, Path config) throws Exception {
+            var output = temporaryDirectory.resolve(config.getFileName() + "-output");
+            Files.createDirectories(output);
+            assertCliSuccess(CliResult.cli("package", "-t", type, "build",
+                    "-c", config.toString(), "-o", output.toString()));
+            Path packageFile;
+            try (var files = Files.list(output)) {
+                packageFile = files.findFirst().orElseThrow();
+            }
+            Path relativeDirectory;
+            relativeDirectory = type.equals("deb") ? Path.of("pool", target) : Path.of(target, RpmArch.fromArch(Arch.current()).name(), "pool");
+            var destinationDirectory = repository.resolve(relativeDirectory);
+            Files.createDirectories(destinationDirectory);
+            Files.copy(packageFile, destinationDirectory.resolve(packageFile.getFileName()),
+                    StandardCopyOption.REPLACE_EXISTING);
+            return relativeDirectory.resolve(packageFile.getFileName()).toString().replace('\\', '/');
+        }
+
+        private void indexPackage(String type, Path repository, Path config, String packageCoordinate)
+                throws Exception {
+            if (type.equals("deb")) {
+                assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", repository.toUri().toString(),
+                        "index", packageCoordinate));
+                return;
+            }
+
+            // RPM package parsing is not implemented yet, so create the same sidecar from its YAML source.
+            var cli = new SimpleRepoCli();
+            PackageConfig packageConfig = cli.yamlMapper.readValue(config, PackageConfig.class);
+            packageConfig.getControl().setInstalledSize(1);
+            var packagePath = repository.resolve(packageCoordinate);
+            var content = Files.readAllBytes(packagePath);
+            var index = new IndexFile().setPackageConfig(packageConfig)
+                    .setFileIntegrity(FileIntegrity.of(content, packagePath.getFileName().toString()));
+            Files.write(Path.of(packagePath + PackageBuilder.INDEX_JSON_FILE_EXTENSION),
+                    cli.jsonMapper.writeValueAsBytes(index));
+        }
+
+        private RepoKeys generateRepoKeys(String prefix) {
+            var publicKey = temporaryDirectory.resolve(prefix + "-repository-public.asc");
+            var secretKey = temporaryDirectory.resolve(prefix + "-repository-secret.asc");
+            assertCliSuccess(CliResult.cli("keys", "gen", "-p", "CURVE25519",
+                    "-P", publicKey.toString(), "-S", secretKey.toString()));
+            return new RepoKeys(publicKey, secretKey);
+        }
+
+        private void copyRepository(GenericContainer<?> container, Path repository) throws Exception {
+            try (var paths = Files.walk(repository)) {
+                for (var path : paths.filter(Files::isRegularFile).toList()) {
+                    var relative = repository.relativize(path).toString().replace('\\', '/');
+                    container.withCopyToContainer(
+                            Transferable.of(Files.readAllBytes(path), Integer.parseInt("0644", 8)), "/tmp/repo/" + relative);
+                }
+            }
+        }
+
+        @SuppressWarnings("resource")
+        private GenericContainer<?> repositoryContainer(String image, boolean debian) {
+            var container = new GenericContainer<>(image)
+                    .withCreateContainerCmdModifier(command -> command.withEntrypoint("tail", "-f", "/dev/null"));
+            if (debian) container.withEnv("DEBIAN_FRONTEND", "noninteractive");
+            return container;
+        }
+
+        private void assertInstalledExecutables(GenericContainer<?> container, List<String> packageNames)
+                throws Exception {
+            for (var packageName : packageNames) {
+                var result = container.execInContainer("/opt/simple-repo-cli/" + packageName);
+                assertExecSuccess(result);
+                assertEquals(packageName, result.getStdout().strip());
+            }
+        }
+
+        private void assertCliSuccess(CliResult result) {
+            assertEquals(0, result.exitCode(), result::diagnostic);
+        }
+
+        private void assertExecSuccess(Container.ExecResult result) {
+            assertEquals(0, result.getExitCode(), () -> result.getStdout() + "\n" + result.getStderr());
+        }
+
+        private record RepoKeys(Path publicKey, Path secretKey) {
+        }
+
+        private record RepoFixture(Path root, String target, List<String> packageNames) {
         }
     }
 

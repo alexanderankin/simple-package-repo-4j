@@ -143,7 +143,7 @@ public class SimpleRepoCli {
         var packageBuilder = repository.packageBuilder();
         for (var eachPackage : packages) {
             var indexFileDto = packageBuilder.parseConfigToIndexFile(eachPackage);
-            var indexFileName = packageBuilder.indexFileName(indexFileDto.getPackageConfig());
+            var indexFileName = eachPackage.getFileName() + PackageBuilder.INDEX_JSON_FILE_EXTENSION;
             var indexFilePath = eachPackage.getParent().resolve(indexFileName);
             Files.write(indexFilePath, jsonMapper.writeValueAsBytes(indexFileDto));
         }
@@ -160,7 +160,9 @@ public class SimpleRepoCli {
             var packageBuilder = repository.packageBuilder();
             var packageConfig = packageBuilder.parseConfigFromPackage(downloadedPackage);
             var index = packageBuilder.buildIndexFile(downloadedPackage, packageConfig);
-            repoIo.uploadPackage(packagePath.neighbor(packageBuilder.indexFileName(packageConfig)),
+            var packageFileName = packagePath.getParts().getLast();
+            index.getFileIntegrity().setPath(packageFileName);
+            repoIo.uploadPackage(packagePath.neighbor(packageFileName + PackageBuilder.INDEX_JSON_FILE_EXTENSION),
                     jsonMapper.writeValueAsBytes(index));
         }
     }
@@ -217,10 +219,10 @@ public class SimpleRepoCli {
         if (targets == null || targets.isEmpty()) {
             throw new IllegalArgumentException("config-based repository add requires at least one --target");
         }
+        var builder = repository.repoBuilder();
+        var indexPaths = new ArrayList<String>();
         for (var configPath : configPaths) {
             var sourceConfig = readPackageConfig(configPath);
-            var builder = repository.repoBuilder();
-            var indexPaths = new ArrayList<String>();
             for (var target : targets) {
                 var config = jsonMapper.readValue(jsonMapper.writeValueAsBytes(sourceConfig), PackageConfig.class);
                 config = builder.prepareTarget(config, target);
@@ -233,8 +235,8 @@ public class SimpleRepoCli {
                 repoIo.uploadPackage(indexPath, jsonMapper.writeValueAsBytes(index));
                 indexPaths.add(indexPath.joinParts());
             }
-            addRepositoryIndexes(repoIo, repository, indexPaths, keepVersions, initialization, publicKey, secretKey);
         }
+        addRepositoryIndexes(repoIo, repository, indexPaths, keepVersions, initialization, publicKey, secretKey);
     }
 
     @SneakyThrows

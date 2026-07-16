@@ -38,7 +38,7 @@ public class InstantSecondSerDe {
     public static class Deserializer extends ValueDeserializer<Instant> {
         @Override
         public Instant deserialize(JsonParser p, DeserializationContext ctxt) throws JacksonException {
-            return Instant.ofEpochSecond(p.getLongValue());
+            return Instant.ofEpochSecond(p.getValueAsLong());
         }
     }
 }
