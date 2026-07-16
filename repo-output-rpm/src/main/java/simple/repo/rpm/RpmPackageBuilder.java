@@ -36,6 +36,8 @@ import static simple.repo.rpm.RpmTags.RpmTagType.*;
 @Data
 @Accessors(chain = true)
 public class RpmPackageBuilder implements PackageBuilder {
+    private static final java.util.regex.Pattern EL_RELEASE =
+            java.util.regex.Pattern.compile("^(.*)\\.(el\\d+(?:_\\d+)?)$");
 
     FileSpecReader fileSpecReader = new FileSpecReader();
 
@@ -95,9 +97,7 @@ public class RpmPackageBuilder implements PackageBuilder {
             throw new IllegalArgumentException("expected name-version-release.arch.rpm: " + fileName);
         }
         var releaseAndEl = nameVersionRelease.substring(releaseSeparator + 1);
-        var elMatcher = java.util.regex.Pattern.compile("^(.*)\\.(el\\d+)$").matcher(releaseAndEl);
-        var release = elMatcher.matches() ? elMatcher.group(1) : releaseAndEl;
-        var elVersion = elMatcher.matches() ? elMatcher.group(2) : null;
+        var release = releaseParts(releaseAndEl);
         Arch arch;
         if ("noarch".equals(archName)) {
             arch = Arch.unknown;
@@ -111,8 +111,8 @@ public class RpmPackageBuilder implements PackageBuilder {
         return new PackageConfig.PackageMeta()
                 .setName(nameVersionRelease.substring(0, versionSeparator))
                 .setVersion(nameVersionRelease.substring(versionSeparator + 1, releaseSeparator))
-                .setReleaseVersion(release)
-                .setElVersion(elVersion)
+                .setReleaseVersion(release.releaseVersion())
+                .setElVersion(release.elVersion())
                 .setArch(arch);
     }
 
@@ -162,7 +162,14 @@ public class RpmPackageBuilder implements PackageBuilder {
 
     @Override
     public PackageConfig parseConfigFromPackage(byte[] downloadedPackage) {
-        throw new UnsupportedOperationException();
+        return RpmParsePackageConfig.INSTANCE.parseConfigFromPackage(downloadedPackage);
+    }
+
+    static ReleaseParts releaseParts(String release) {
+        var matcher = EL_RELEASE.matcher(release);
+        return matcher.matches()
+                ? new ReleaseParts(matcher.group(1), matcher.group(2))
+                : new ReleaseParts(release, null);
     }
 
     private List<PackageFile> readFiles(PackageConfig config) {
@@ -520,5 +527,8 @@ public class RpmPackageBuilder implements PackageBuilder {
     }
 
     private record Payload(byte[] uncompressed, byte[] compressed) {
+    }
+
+    record ReleaseParts(String releaseVersion, String elVersion) {
     }
 }

@@ -8,10 +8,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.images.builder.Transferable;
 import simple.repo.deb.DebArch;
 import simple.repo.model.Arch;
-import simple.repo.model.FileIntegrity;
-import simple.repo.model.IndexFile;
-import simple.repo.model.PackageConfig;
-import simple.repo.packaging.PackageBuilder;
 import simple.repo.rpm.RpmArch;
 
 import java.io.PrintWriter;
@@ -122,7 +118,7 @@ class SimpleRepoApplicationITest {
             var packageNames = List.of(type + "-scan", type + "-config-a", type + "-config-b", type + "-index");
 
             var scanCoordinate = placeBuiltPackage(type, target, root, scan);
-            indexPackage(type, root, scan, scanCoordinate);
+            indexPackage(type, root, scanCoordinate);
             assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", root.toUri().toString(),
                     "--target", target, "-P", keys.publicKey().toString(), "-S", keys.secretKey().toString(),
                     "scan"));
@@ -132,7 +128,7 @@ class SimpleRepoApplicationITest {
                     "add", "-c", configA.toString(), configB.toString()));
 
             var indexPackageCoordinate = placeBuiltPackage(type, target, root, index);
-            indexPackage(type, root, index, indexPackageCoordinate);
+            indexPackage(type, root, indexPackageCoordinate);
             assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", root.toUri().toString(),
                     "-P", keys.publicKey().toString(), "-S", keys.secretKey().toString(),
                     "add", "-i",
@@ -196,24 +192,9 @@ class SimpleRepoApplicationITest {
             return relativeDirectory.resolve(packageFile.getFileName()).toString().replace('\\', '/');
         }
 
-        private void indexPackage(String type, Path repository, Path config, String packageCoordinate)
-                throws Exception {
-            if (type.equals("deb")) {
-                assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", repository.toUri().toString(),
-                        "index", packageCoordinate));
-                return;
-            }
-
-            // RPM package parsing is not implemented yet, so create the same sidecar from its YAML source.
-            var cli = new SimpleRepoCli();
-            PackageConfig packageConfig = cli.yamlMapper.readValue(config, PackageConfig.class);
-            packageConfig.getControl().setInstalledSize(1);
-            var packagePath = repository.resolve(packageCoordinate);
-            var content = Files.readAllBytes(packagePath);
-            var index = new IndexFile().setPackageConfig(packageConfig)
-                    .setFileIntegrity(FileIntegrity.of(content, packagePath.getFileName().toString()));
-            Files.write(Path.of(packagePath + PackageBuilder.INDEX_JSON_FILE_EXTENSION),
-                    cli.jsonMapper.writeValueAsBytes(index));
+        private void indexPackage(String type, Path repository, String packageCoordinate) {
+            assertCliSuccess(CliResult.cli("repo", "-t", type, "-r", repository.toUri().toString(),
+                    "index", packageCoordinate));
         }
 
         private RepoKeys generateRepoKeys(String prefix) {
