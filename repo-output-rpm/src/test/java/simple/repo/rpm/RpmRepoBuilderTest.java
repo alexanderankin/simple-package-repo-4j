@@ -36,7 +36,7 @@ class RpmRepoBuilderTest {
         var packageMeta = new IndexFile()
                 .setPackageConfig(config)
                 .setFileIntegrity(packageIntegrity);
-        var builder = new RpmRepoBuilder();
+        var builder = (RpmRepoBuilder) new RpmRepository().repoBuilder();
 
         var repo = builder.repoBuilder(new RpmRepoBuilder.RepoConfig(), Instant.EPOCH)
                 .buildVersion("10")
@@ -53,7 +53,7 @@ class RpmRepoBuilderTest {
     @Test
     void buildsInstallableTwoVersionByTwoArchitectureRepository() throws Exception {
         var packageBuilder = new RpmPackageBuilder();
-        var repoBuilder = new RpmRepoBuilder();
+        var repoBuilder = (RpmRepoBuilder) new RpmRepository().repoBuilder();
         var packages = new LinkedHashMap<Coordinate, FileIntegrityWithContent>();
         var indexes = new LinkedHashMap<Coordinate, IndexFile>();
         for (var version : List.of("9", "10")) {

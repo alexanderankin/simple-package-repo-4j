@@ -18,6 +18,18 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RpmPackageBuilderTest {
 
     @Test
+    void parsesMetadataFromSidecarFileName() {
+        var meta = new RpmPackageBuilder().metaFromFileName(
+                "example-tools-1.10.0-7.el10.aarch64.rpm.spr4j-index.json");
+
+        assertEquals("example-tools", meta.getName());
+        assertEquals("1.10.0", meta.getVersion());
+        assertEquals("7", meta.getReleaseVersion());
+        assertEquals("el10", meta.getElVersion());
+        assertEquals(Arch.arm64, meta.getArch());
+    }
+
+    @Test
     void buildsStandardHeaderAndSignatureEntries() throws Exception {
         var config = new PackageConfig()
                 .setMeta(new PackageConfig.PackageMeta()

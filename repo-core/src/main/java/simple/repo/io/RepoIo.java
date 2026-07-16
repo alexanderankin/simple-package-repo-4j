@@ -42,10 +42,23 @@ public interface RepoIo<Location extends RepoIo.RepoLocation> {
 
     String stringifyLocation(Location location);
 
+    default String stringifyLocation() {
+        return stringifyLocation(getLocation());
+    }
+
     /**
      * marker interface for parsing
      */
     interface RepoLocation {
     }
 
+    class ObjectNotFoundException extends IllegalArgumentException {
+        public ObjectNotFoundException(String message) {
+            super(message);
+        }
+
+        public ObjectNotFoundException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 }

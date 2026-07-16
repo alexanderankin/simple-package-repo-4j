@@ -32,7 +32,12 @@ public class S3RepoIo implements RepoIo<S3RepoIo.S3Location> {
 
     @Override
     public byte[] downloadPackage(Repository.RepositoryPath repositoryPath) {
-        return s3Client().getObjectAsBytes(location.get(repositoryPath.joinParts())).asByteArrayUnsafe();
+        var getObjectRequest = location.get(repositoryPath.joinParts());
+        try {
+            return s3Client().getObjectAsBytes(getObjectRequest).asByteArrayUnsafe();
+        } catch (S3Exception e) {
+            throw new ObjectNotFoundException("could not get object: " + getObjectRequest, e);
+        }
     }
 
     @Override

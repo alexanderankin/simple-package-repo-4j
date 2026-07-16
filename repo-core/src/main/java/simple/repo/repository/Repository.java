@@ -20,6 +20,8 @@ public abstract class Repository<Coordinate> {
 
     public abstract PackageBuilder packageBuilder();
 
+    public abstract RepositoryBuilder repoBuilder();
+
     public Coordinate coordinate(String... values) {
         return coordinate(Arrays.asList(values));
     }
@@ -33,14 +35,9 @@ public abstract class Repository<Coordinate> {
 
     public abstract RepositoryPath indexOf(Coordinate coordinate);
 
-    public <L extends RepoIo.RepoLocation> Iterable<PackageConfig> scanIndexes(RepoIo<L> repoIo) {
-        return () -> IteratorUtils.transformedIterator(
-                IteratorUtils.filteredIterator(
-                        iteratePoolPaths(repoIo),
-                        f -> f.joinParts().endsWith(".index.json")
-                ),
-                input -> packageBuilder().parseConfigFromPackage(repoIo.downloadPackage(input))
-        );
+    public <L extends RepoIo.RepoLocation> Iterable<RepositoryPath> indexPaths(RepoIo<L> repoIo) {
+        return () -> IteratorUtils.filteredIterator(iteratePoolPaths(repoIo),
+                path -> path.joinParts().endsWith(PackageBuilder.INDEX_JSON_FILE_EXTENSION));
     }
 
     protected abstract <L extends RepoIo.RepoLocation> Iterator<RepositoryPath> iteratePoolPaths(RepoIo<L> repoIo);
@@ -63,15 +60,7 @@ public abstract class Repository<Coordinate> {
          * @return root joined by '/' with all non-empty paths also joined with '/'
          */
         public String joinParts() {
-            var sb = new StringBuilder();
-            if (!parts.isEmpty()) {
-                for (var part : parts) {
-                    if (!part.isEmpty()) {
-                        sb.append('/').append(part);
-                    }
-                }
-            }
-            return sb.toString();
+            return parts.stream().filter(part -> !part.isEmpty()).collect(java.util.stream.Collectors.joining("/"));
         }
 
         public RepositoryPath neighbor(String neighborName) {

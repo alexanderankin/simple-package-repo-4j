@@ -49,4 +49,14 @@ class DebPackageBuilderTest {
                 .setVersion(version))
         ), is(equalTo(expected)));
     }
+
+    @Test
+    void parsesMetadataFromSidecarFileName() {
+        var meta = debPackageBuilder.metaFromFileName("example-tools_1.10.0-7_arm64.deb.spr4j-index.json");
+
+        assertThat(meta.getName(), is("example-tools"));
+        assertThat(meta.getVersion(), is("1.10.0"));
+        assertThat(meta.getReleaseVersion(), is("7"));
+        assertThat(meta.getArch(), is(Arch.arm64));
+    }
 }

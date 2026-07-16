@@ -34,7 +34,7 @@ public class RpmRepoBuilderITest {
         var packageFile = packageBuilder.buildPackage(packageConfig);
         var indexFile = new IndexFile().setFileIntegrity(packageFile.getFileIntegrity()).setPackageConfig(packageConfig);
 
-        var builder = new RpmRepoBuilder();
+        var builder = (RpmRepoBuilder) new RpmRepository().repoBuilder();
         var now = Instant.ofEpochSecond(1778861567L);
         var repo = builder.repoBuilder(new RpmRepoBuilder.RepoConfig(), now)
                 .buildVersion("10")
@@ -46,7 +46,7 @@ public class RpmRepoBuilderITest {
                 "simple repo", "repo@example.invalid", SupportedKeyGenerationProfile.RSA4096);
         var privateKey = key.getPrivateKey().getBytes(StandardCharsets.UTF_8);
         var publicKey = key.getPublicKey().getBytes(StandardCharsets.UTF_8);
-        var signedFiles = builder.signRepo(repoFiles, privateKey, publicKey, now);
+        var signedFiles = builder.sign(repoFiles, privateKey, publicKey, now);
         var rpmArch = new RpmPackageBuilder().archName(Arch.current());
         var repositoryRoot = "/tmp/repo/10/" + rpmArch;
         var repositoryConfig = """

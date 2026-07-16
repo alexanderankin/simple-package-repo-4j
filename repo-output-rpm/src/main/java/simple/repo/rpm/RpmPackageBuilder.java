@@ -23,6 +23,7 @@ import simple.repo.rpm.model.Signature.SignatureEntry;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
 import java.util.zip.GZIPOutputStream;
@@ -72,6 +73,47 @@ public class RpmPackageBuilder implements PackageBuilder {
             stringBuilder.append('.').append(meta.getElVersion());
         stringBuilder.append('.').append(archName(meta.getArch())).append(".rpm");
         return stringBuilder.toString();
+    }
+
+    @Override
+    public PackageConfig.PackageMeta metaFromFileName(String fileName) {
+        var packageName = Path.of(fileName).getFileName().toString();
+        if (packageName.endsWith(INDEX_JSON_FILE_EXTENSION)) {
+            packageName = packageName.substring(0, packageName.length() - INDEX_JSON_FILE_EXTENSION.length());
+        }
+        if (!packageName.endsWith(".rpm")) {
+            throw new IllegalArgumentException("not an RPM filename: " + fileName);
+        }
+        var base = packageName.substring(0, packageName.length() - ".rpm".length());
+        var archSeparator = base.lastIndexOf('.');
+        if (archSeparator < 0) throw new IllegalArgumentException("missing RPM architecture: " + fileName);
+        var archName = base.substring(archSeparator + 1);
+        var nameVersionRelease = base.substring(0, archSeparator);
+        var releaseSeparator = nameVersionRelease.lastIndexOf('-');
+        var versionSeparator = releaseSeparator < 0 ? -1 : nameVersionRelease.lastIndexOf('-', releaseSeparator - 1);
+        if (versionSeparator <= 0 || releaseSeparator <= versionSeparator) {
+            throw new IllegalArgumentException("expected name-version-release.arch.rpm: " + fileName);
+        }
+        var releaseAndEl = nameVersionRelease.substring(releaseSeparator + 1);
+        var elMatcher = java.util.regex.Pattern.compile("^(.*)\\.(el\\d+)$").matcher(releaseAndEl);
+        var release = elMatcher.matches() ? elMatcher.group(1) : releaseAndEl;
+        var elVersion = elMatcher.matches() ? elMatcher.group(2) : null;
+        Arch arch;
+        if ("noarch".equals(archName)) {
+            arch = Arch.unknown;
+        } else {
+            try {
+                arch = RpmArch.valueOf(archName).getArch();
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("unrecognized RPM architecture in " + fileName, exception);
+            }
+        }
+        return new PackageConfig.PackageMeta()
+                .setName(nameVersionRelease.substring(0, versionSeparator))
+                .setVersion(nameVersionRelease.substring(versionSeparator + 1, releaseSeparator))
+                .setReleaseVersion(release)
+                .setElVersion(elVersion)
+                .setArch(arch);
     }
 
     @Override

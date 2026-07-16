@@ -1,23 +1,26 @@
 package simple.repo.rpm;
 
-import lombok.Data;
-import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
+import lombok.*;
 import lombok.experimental.Accessors;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+import simple.repo.io.RepoIo;
 import simple.repo.keys.KeysUtils;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.IndexFile;
 import simple.repo.model.PackageConfig;
+import simple.repo.repository.Repository;
+import simple.repo.repository.RepositoryBuilder;
+import simple.repo.repository.RepositoryInitialization;
 import simple.repo.rpm.repomd.dto.FileListsDto;
 import simple.repo.rpm.repomd.dto.OtherDto;
 import simple.repo.rpm.repomd.dto.PrimaryDto;
 import simple.repo.rpm.repomd.dto.RepoMdDto;
 import simple.repo.rpm.repomd.dtoconfig.RpmXmlCustomizer;
+import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.dataformat.xml.XmlMapper;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.sql.DriverManager;
@@ -25,13 +28,52 @@ import java.time.Instant;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 @Data
 @Accessors(chain = true)
-public class RpmRepoBuilder {
-    private final RpmPackageBuilder rpmPackageBuilder = new RpmPackageBuilder();
-    private final XmlMapper xmlMapper = new RpmXmlCustomizer().customized(XmlMapper.builder()).build();
+public class RpmRepoBuilder implements RepositoryBuilder {
+    private RpmPackageBuilder packageBuilder;
+    private JsonMapper jsonMapper;
+    @Setter(AccessLevel.PROTECTED)
+    private XmlMapper xmlMapper = new RpmXmlCustomizer().customized(XmlMapper.builder()).build();
+
+    @Override
+    public String targetFromIndexPath(Repository.RepositoryPath indexPath) {
+        var parts = indexPath.getParts();
+        var pool = parts.indexOf("pool");
+        if (pool < 2)
+            throw new IllegalArgumentException("RPM index path must be <version>/<arch>/pool/...: " + indexPath.joinParts());
+        return parts.get(pool - 2);
+    }
+
+    @Override
+    public PackageConfig prepareTarget(PackageConfig packageConfig, String target) {
+        if (target == null || !target.matches("\\d+")) {
+            throw new IllegalArgumentException("RPM target must be numeric: " + target);
+        }
+        packageConfig = jsonMapper.convertValue(packageConfig, PackageConfig.class);
+        packageConfig.getMeta().setElVersion("el" + target);
+        return packageConfig;
+    }
+
+    @Override
+    public Repository.RepositoryPath packagePath(String target, PackageConfig packageConfig) {
+        return Repository.RepositoryPath.of(List.of(target, getPackageBuilder().archName(packageConfig.getMeta().getArch()),
+                "pool", getPackageBuilder().fileName(packageConfig)));
+    }
+
+    @Override
+    public Map<String, FileIntegrityWithContent> build(Map<String, List<IndexFile>> packagesByTarget, Instant now) {
+        var builder = repoBuilder(new RepoConfig(), now);
+        packagesByTarget.forEach((target, packages) -> {
+            var section = builder.buildVersion(target);
+            packages.forEach(section::addPackage);
+            section.build();
+        });
+        return buildRepo(builder.build());
+    }
 
     @SuppressWarnings("unused")
     public RepoBuilder repoBuilder(RepoConfig config) {
@@ -42,18 +84,77 @@ public class RpmRepoBuilder {
         return new RepoBuilder(config, now);
     }
 
-    public Map<String, FileIntegrityWithContent> buildRepo(Repo repo) {
-        return repo.versionSections().values().stream()
-                .flatMap(section -> section.repoFiles().entrySet().stream()
-                        .map(file ->
-                                Map.entry(section.getVersion() + "/" + file.getKey(), file.getValue())))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (_, right) -> right, LinkedHashMap::new));
+    @Override
+    public List<IndexFile> readPublished(RepoIo<?> repoIo,
+                                         String target,
+                                         Collection<IndexFile> additions,
+                                         RepositoryInitialization initialization) {
+        if (initialization == RepositoryInitialization.re_init) throw new UnsupportedOperationException("re-init");
+        if (initialization == RepositoryInitialization.init) return List.of();
+        var arches = additions.stream().map(IndexFile::getPackageConfig).map(PackageConfig::getMeta)
+                .map(PackageConfig.PackageMeta::getArch).map(getPackageBuilder()::archName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        var result = new ArrayList<IndexFile>();
+        for (var arch : arches) {
+            var repoMdPath = Repository.RepositoryPath.of(List.of(target, arch, "repodata", "repomd.xml"));
+            byte[] repoMdBytes;
+            try {
+                repoMdBytes = repoIo.downloadPackage(repoMdPath);
+            } catch (Exception exception) {
+                if (initialization == RepositoryInitialization.allowed
+                        && exception instanceof RepoIo.ObjectNotFoundException) continue;
+                throw new IllegalStateException("RPM repository partition is not initialized: " + target + "/" + arch, exception);
+            }
+            try {
+                var repoMd = xmlMapper.readValue(repoMdBytes, RepoMdDto.class);
+                var primary = repoMd.getData().stream()
+                        .filter(data -> data.getType() == RepoMdDto.DataType.primary).findFirst().orElseThrow();
+                var location = primary.getLocation().getHref();
+                var primaryPath = new ArrayList<>(List.of(target, arch));
+                primaryPath.addAll(List.of(location.split("/")));
+                var primaryDto = xmlMapper.readValue(gunzip(repoIo.downloadPackage(
+                        Repository.RepositoryPath.of(primaryPath))), PrimaryDto.class);
+                result.addAll(primaryDto.getPackageList().stream().map(this::indexFile).toList());
+            } catch (Exception exception) {
+                throw new IllegalStateException("unable to read RPM metadata " + repoMdPath.joinParts(), exception);
+            }
+        }
+        return result;
     }
 
-    public Map<String, FileIntegrityWithContent> signRepo(Map<String, FileIntegrityWithContent> repoFiles,
-                                                          byte[] privateKey,
-                                                          byte[] publicKey,
-                                                          Instant now) {
+    private IndexFile indexFile(PrimaryDto.Package rpmPackage) {
+        var fileName = java.nio.file.Path.of(rpmPackage.getLocation().getHref()).getFileName().toString();
+        var meta = getPackageBuilder().metaFromFileName(fileName)
+                .setVersion(rpmPackage.getVersion().getVer())
+                .setArch("noarch".equals(rpmPackage.getArch())
+                        ? simple.repo.model.Arch.unknown : RpmArch.valueOf(rpmPackage.getArch()).getArch());
+        var control = new PackageConfig.ControlExtras()
+                .setMaintainer(rpmPackage.getPackager())
+                .setDescription(rpmPackage.getDescription())
+                .setHomepage(rpmPackage.getUrl())
+                .setSection(rpmPackage.getFormat() == null ? null : rpmPackage.getFormat().getGroup());
+        if (rpmPackage.getSize() != null && rpmPackage.getSize().getInstalled() != null) {
+            control.setInstalledSize(Math.toIntExact(rpmPackage.getSize().getInstalled()));
+        }
+        var dataFiles = rpmPackage.getFormat() == null || rpmPackage.getFormat().getFiles() == null
+                ? List.<PackageConfig.PkgFileSpec>of()
+                : rpmPackage.getFormat().getFiles().stream()
+                .map(path -> (PackageConfig.PkgFileSpec) new PackageConfig.PkgFileSpec.TextPkgFileSpec()
+                        .setContent("metadata-only").setPath(path))
+                .toList();
+        var config = new PackageConfig().setMeta(meta).setControl(control)
+                .setFiles(new PackageConfig.FileSpec().setControlFiles(List.of()).setDataFiles(dataFiles));
+        var integrity = new simple.repo.model.FileIntegrity().setPath(fileName)
+                .setSize(Math.toIntExact(rpmPackage.getSize().getPackageSize()))
+                .setSha256(rpmPackage.getChecksum().getValue());
+        return new IndexFile().setPackageConfig(config).setFileIntegrity(integrity);
+    }
+
+    @Override
+    public Map<String, FileIntegrityWithContent> sign(Map<String, FileIntegrityWithContent> repoFiles,
+                                                      byte[] privateKey,
+                                                      byte[] publicKey,
+                                                      Instant now) {
         var signed = new LinkedHashMap<String, FileIntegrityWithContent>();
         for (var file : repoFiles.entrySet()) {
             if (!file.getKey().endsWith("/repodata/repomd.xml")) {
@@ -68,6 +169,21 @@ public class RpmRepoBuilder {
             signed.put(publicKeyPath, FileIntegrityWithContent.of(publicKey, publicKeyPath));
         }
         return signed;
+    }
+
+    @SneakyThrows
+    private byte[] gunzip(byte[] content) {
+        try (var input = new GZIPInputStream(new ByteArrayInputStream(content))) {
+            return input.readAllBytes();
+        }
+    }
+
+    public Map<String, FileIntegrityWithContent> buildRepo(Repo repo) {
+        return repo.versionSections().values().stream()
+                .flatMap(section -> section.repoFiles().entrySet().stream()
+                        .map(file ->
+                                Map.entry(section.getVersion() + "/" + file.getKey(), file.getValue())))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (_, right) -> right, LinkedHashMap::new));
     }
 
     private Map<String, FileIntegrityWithContent> metadata(List<IndexFile> packages,
@@ -111,7 +227,7 @@ public class RpmRepoBuilder {
         var control = config.getControl();
         var integrity = packageMeta.getFileIntegrity();
         var release = release(meta);
-        var arch = rpmPackageBuilder.archName(meta.getArch());
+        var arch = getPackageBuilder().archName(meta.getArch());
         var files = filePaths(packageMeta.getPackageConfig());
         var provides = new PrimaryDto.Entries().setEntryList(List.of(
                 new PrimaryDto.Entry().setName(meta.getName()).setFlags("EQ")
@@ -145,7 +261,7 @@ public class RpmRepoBuilder {
                 .map(meta -> new FileListsDto.Package()
                         .setPkgId(meta.getFileIntegrity().getSha256())
                         .setName(meta.getPackageConfig().getMeta().getName())
-                        .setArch(rpmPackageBuilder.archName(meta.getPackageConfig().getMeta().getArch()))
+                        .setArch(getPackageBuilder().archName(meta.getPackageConfig().getMeta().getArch()))
                         .setVersion(version(meta.getPackageConfig().getMeta()))
                         .setFileItems(filePaths(meta.getPackageConfig()).stream()
                                 .map(path -> new FileListsDto.Package.FileItem().setText(path)).toList()))
@@ -157,7 +273,7 @@ public class RpmRepoBuilder {
                 .map(meta -> new OtherDto.PackageEntry()
                         .setPkgId(meta.getFileIntegrity().getSha256())
                         .setName(meta.getPackageConfig().getMeta().getName())
-                        .setArch(rpmPackageBuilder.archName(meta.getPackageConfig().getMeta().getArch()))
+                        .setArch(getPackageBuilder().archName(meta.getPackageConfig().getMeta().getArch()))
                         .setVersion(version(meta.getPackageConfig().getMeta()))
                         .setChangelogs(List.of()))
                 .toList());
@@ -247,7 +363,7 @@ public class RpmRepoBuilder {
                 statement.accept("INSERT INTO packages VALUES (" + key + "," +
                         q(integrity.getFileIntegrity().getSha256()) + "," +
                         q(meta.getName()) + "," +
-                        q(rpmPackageBuilder.archName(meta.getArch())) + "," +
+                        q(getPackageBuilder().archName(meta.getArch())) + "," +
                         q(meta.getVersion()) + "," +
                         "'0'," +
                         q(release(meta)) + "," +
@@ -286,7 +402,7 @@ public class RpmRepoBuilder {
                 var packageMeta = packages.get(i);
                 var meta = packageMeta.getPackageConfig().getMeta();
                 var key = i + 1;
-                statement.accept("INSERT INTO packages VALUES (" + key + "," + q(packageMeta.getFileIntegrity().getSha256()) + "," + q(meta.getName()) + "," + q(rpmPackageBuilder.archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
+                statement.accept("INSERT INTO packages VALUES (" + key + "," + q(packageMeta.getFileIntegrity().getSha256()) + "," + q(meta.getName()) + "," + q(getPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
                 for (var path : filePaths(packageMeta.getPackageConfig())) {
                     var slash = path.lastIndexOf('/');
                     statement.accept("INSERT INTO filelist VALUES (" + key + "," + q(path.substring(0, slash + 1)) + "," + q(path.substring(slash + 1)) + ",'f')");
@@ -302,7 +418,7 @@ public class RpmRepoBuilder {
             for (var i = 0; i < packages.size(); i++) {
                 var packageMeta = packages.get(i);
                 var meta = packageMeta.getPackageConfig().getMeta();
-                statement.accept("INSERT INTO packages VALUES (" + (i + 1) + "," + q(packageMeta.getFileIntegrity().getSha256()) + "," + q(meta.getName()) + "," + q(rpmPackageBuilder.archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
+                statement.accept("INSERT INTO packages VALUES (" + (i + 1) + "," + q(packageMeta.getFileIntegrity().getSha256()) + "," + q(meta.getName()) + "," + q(getPackageBuilder().archName(meta.getArch())) + "," + q(meta.getVersion()) + ",'0'," + q(release(meta)) + ")");
             }
         });
     }
@@ -420,7 +536,7 @@ public class RpmRepoBuilder {
         public RepoBuilder build() {
             var byArch = packages.stream()
                     .collect(Collectors.groupingBy(
-                            meta -> rpmPackageBuilder.archName(meta.getPackageConfig().getMeta().getArch()),
+                            meta -> getPackageBuilder().archName(meta.getPackageConfig().getMeta().getArch()),
                             LinkedHashMap::new,
                             Collectors.toList()
                     ));

@@ -55,6 +55,41 @@ public class DebPackageBuilder implements PackageBuilder {
     }
 
     @Override
+    public PackageConfig.PackageMeta metaFromFileName(String fileName) {
+        var packageName = stripIndexExtension(Path.of(fileName).getFileName().toString());
+        if (!packageName.endsWith(".deb")) {
+            throw new IllegalArgumentException("not a DEB filename: " + fileName);
+        }
+        var base = packageName.substring(0, packageName.length() - ".deb".length());
+        var archSeparator = base.lastIndexOf('_');
+        var versionSeparator = base.indexOf('_');
+        if (versionSeparator <= 0 || archSeparator <= versionSeparator) {
+            throw new IllegalArgumentException("expected name_version_arch.deb: " + fileName);
+        }
+        var versionAndRelease = base.substring(versionSeparator + 1, archSeparator);
+        var releaseSeparator = versionAndRelease.lastIndexOf('-');
+        var version = releaseSeparator < 0 ? versionAndRelease : versionAndRelease.substring(0, releaseSeparator);
+        var release = releaseSeparator < 0 ? null : versionAndRelease.substring(releaseSeparator + 1);
+        DebArch debArch;
+        try {
+            debArch = DebArch.valueOf(base.substring(archSeparator + 1));
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("unrecognized DEB architecture in " + fileName, exception);
+        }
+        return new PackageConfig.PackageMeta()
+                .setName(base.substring(0, versionSeparator))
+                .setVersion(version)
+                .setReleaseVersion(release)
+                .setArch(debArch.getArch());
+    }
+
+    private String stripIndexExtension(String fileName) {
+        return fileName.endsWith(INDEX_JSON_FILE_EXTENSION)
+                ? fileName.substring(0, fileName.length() - INDEX_JSON_FILE_EXTENSION.length())
+                : fileName;
+    }
+
+    @Override
     public FileIntegrityWithContent buildPackage(PackageConfig config) {
         byte[] arArchive = buildDebToArchive(config);
         String debFilename = fileName(config);

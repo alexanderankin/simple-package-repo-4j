@@ -15,6 +15,8 @@ public interface PackageBuilder {
 
     String fileName(PackageConfig packageConfig);
 
+    PackageConfig.PackageMeta metaFromFileName(String fileName);
+
     default String indexFileName(PackageConfig packageConfig) {
         return fileName(packageConfig) + INDEX_JSON_FILE_EXTENSION;
     }

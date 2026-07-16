@@ -17,7 +17,7 @@ class DebRepoBuilderTest {
 
     @Test
     void buildsReleaseFileWithAllDigestSections() {
-        var builder = new DebRepoBuilder();
+        var builder = (DebRepoBuilder) new DebRepository().repoBuilder();
         var section = new DebRepoBuilder.Repo.CodenameSection("jammy")
                 .setArches(Set.of("amd64"))
                 .setComponents(Set.of("main"))
@@ -56,7 +56,7 @@ class DebRepoBuilderTest {
 
     @Test
     void buildsSinglePackageIndexAndRelease() {
-        var builder = new DebRepoBuilder();
+        var builder = (DebRepoBuilder) new DebRepository().repoBuilder();
         var config = packageConfig("hello", Arch.amd64);
         var packageFile = new FileIntegrityWithContent()
                 .setContent("hello".getBytes(StandardCharsets.UTF_8))
@@ -94,7 +94,7 @@ class DebRepoBuilderTest {
     @Test
     void buildsInstallableTwoCodenameByTwoArchitectureRepository() throws Exception {
         var packageBuilder = new DebPackageBuilder();
-        var repoBuilder = new DebRepoBuilder();
+        var repoBuilder = (DebRepoBuilder) new DebRepository().repoBuilder();
         var amd64Config = executablePackage("matrix-hello-amd64", Arch.amd64);
         var arm64Config = executablePackage("matrix-hello-arm64", Arch.arm64);
         var amd64Package = packageBuilder.buildPackage(amd64Config);

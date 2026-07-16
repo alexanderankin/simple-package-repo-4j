@@ -9,6 +9,7 @@ import simple.repo.repository.Repository;
 
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,13 +23,20 @@ public class LocalFileRepoIo implements RepoIo<LocalFileRepoIo.LocalFileRepoLoca
     @SneakyThrows
     @Override
     public byte[] downloadPackage(Repository.RepositoryPath repositoryPath) {
-        return Files.readAllBytes(location.resolve(repositoryPath.asLocalPath()));
+        try {
+            return Files.readAllBytes(location.resolve(repositoryPath.asLocalPath()));
+        } catch (NoSuchFileException exception) {
+            throw new RepoIo.ObjectNotFoundException(
+                    "repository path does not exist: " + repositoryPath.joinParts(), exception);
+        }
     }
 
     @SneakyThrows
     @Override
     public void uploadPackage(Repository.RepositoryPath repositoryPath, byte[] content) {
-        Files.write(location.resolve(repositoryPath.asLocalPath()), content);
+        var destination = location.resolve(repositoryPath.asLocalPath());
+        if (destination.getParent() != null) Files.createDirectories(destination.getParent());
+        Files.write(destination, content);
     }
 
     @SneakyThrows
@@ -36,8 +44,13 @@ public class LocalFileRepoIo implements RepoIo<LocalFileRepoIo.LocalFileRepoLoca
     public Iterable<Repository.RepositoryPath> iterFiles(String path) {
         // todo paging?
         Iterable<Repository.RepositoryPath> list;
-        try (var walk = Files.walk(location.resolve(path))) {
-            list = walk.map(this::partsOf).map(Repository.RepositoryPath::of).toList();
+        var root = location.getRoot().toAbsolutePath().normalize();
+        var start = location.resolve(path).toAbsolutePath().normalize();
+        if (!Files.exists(start)) return List.of();
+        try (var walk = Files.walk(start)) {
+            list = walk.filter(Files::isRegularFile)
+                    .map(file -> root.relativize(file.toAbsolutePath().normalize()))
+                    .map(this::partsOf).map(Repository.RepositoryPath::of).toList();
         }
         return list;
     }
@@ -77,16 +90,14 @@ public class LocalFileRepoIo implements RepoIo<LocalFileRepoIo.LocalFileRepoLoca
         Path root;
 
         Path resolve(String path) {
-            var resolved = root.resolve(path);
-            if (!resolved.startsWith(root))
-                throw new IllegalStateException("resolved path does not start with root 0.o; resolved = " + resolved + ", root = " + root);
-            return resolved;
+            return resolve(Path.of(path));
         }
 
         Path resolve(Path path) {
-            var resolved = root.resolve(path);
-            if (!resolved.startsWith(root))
-                throw new IllegalStateException("resolved path does not start with root 0.o; resolved = " + resolved + ", root = " + root);
+            var normalizedRoot = root.toAbsolutePath().normalize();
+            var resolved = normalizedRoot.resolve(path).normalize();
+            if (!resolved.startsWith(normalizedRoot))
+                throw new IllegalStateException("resolved path does not start with root; resolved = " + resolved + ", root = " + normalizedRoot);
             return resolved;
         }
     }

@@ -13,6 +13,7 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import lombok.experimental.Accessors;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.NonNull;
 
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -121,7 +122,7 @@ public class PackageConfig {
     @Data
     @Accessors(chain = true)
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class PackageMeta {
+    public static class PackageMeta implements Comparable<PackageMeta> {
         // public static final String SD_INDEX_EXTENSION = ".simple-deb-4j-index.json";
         @NotBlank
         String name;
@@ -141,6 +142,11 @@ public class PackageConfig {
          * e.g. {@code CTO <cto@contoso.com>}
          */
         String releaser;
+
+        @Override
+        public int compareTo(@NonNull PackageMeta other) {
+            return PackageVersionComparator.INSTANCE.compare(this, other);
+        }
     }
 
     @Dto

@@ -10,12 +10,11 @@ import lombok.extern.slf4j.Slf4j;
 import picocli.AutoComplete;
 import picocli.CommandLine;
 import simple.repo.cli.util.Exists;
-import simple.repo.deb.DebRepository;
 import simple.repo.io.RepoIo;
 import simple.repo.keys.KeysUtils;
 import simple.repo.keys.SupportedKeyGenerationProfile;
 import simple.repo.repository.Repository;
-import simple.repo.rpm.RpmRepository;
+import simple.repo.repository.RepositoryInitialization;
 
 import java.io.PrintWriter;
 import java.net.URI;
@@ -149,6 +148,20 @@ public class SimpleRepoApplication {
                         """)
         URI repoBase;
 
+        @CommandLine.Option(names = "--target", description = "which partitions to target with the operation (deb: codenames, rpm: el versions)")
+        List<String> targets;
+
+        @CommandLine.Option(names = "--keep-versions", description = "latest versions to publish per package and architecture")
+        Integer keepVersions;
+
+        @Exists
+        @CommandLine.Option(names = {"-P", "--public-key"}, description = "repository signing public key")
+        Path publicKey;
+
+        @Exists
+        @CommandLine.Option(names = {"-S", "--secret-key"}, description = "repository signing secret key")
+        Path secretKey;
+
         @Data
         @Accessors(chain = true)
         @CommandLine.Command(name = "index", description = "", aliases = {"index-file"})
@@ -165,26 +178,7 @@ public class SimpleRepoApplication {
                 var instance = instance();
                 RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
                 Repository<?> repository = instance.loadRepo(repo.getRepoType());
-                doRun(instance, repoIo, repository);
-            }
-
-            <I extends RepoIo.RepoLocation, R> void doRun(SimpleRepoCli instance, RepoIo<I> repoIo, Repository<R> repository) {
-                for (String eachPackage : packages) {
-                    // validate inputs
-                    var packagePathParts = eachPackage.split("/");
-                    var coordinate = repository.coordinate(packagePathParts);
-                    // rebuild path + download
-                    var pathToPackage = repository.pathTo(coordinate);
-                    var downloadedPackage = repoIo.downloadPackage(pathToPackage);
-                    // build index file
-                    var packageBuilder = repository.packageBuilder();
-                    var packageConfig = packageBuilder.parseConfigFromPackage(downloadedPackage);
-                    var indexFileName = packageBuilder.indexFileName(packageConfig);
-                    var indexFileContent = packageBuilder.buildIndexFile(downloadedPackage, packageConfig);
-                    // upload index file
-                    var pathToPackageIndexFile = pathToPackage.neighbor(indexFileName);
-                    repoIo.uploadPackage(pathToPackageIndexFile, instance.jsonMapper.writeValueAsBytes(indexFileContent));
-                }
+                instance.indexRepositoryPackages(repoIo, repository, packages);
             }
         }
 
@@ -199,18 +193,7 @@ public class SimpleRepoApplication {
                 var instance = instance();
                 RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
                 Repository<?> repository = instance.loadRepo(repo.getRepoType());
-                doRun(repoIo, repository);
-            }
-
-            <I extends RepoIo.RepoLocation, R> void doRun(RepoIo<I> repoIo, Repository<R> repository) {
-                repository.scanIndexes(repoIo);
-                switch (repository) {
-                    case DebRepository debRepository -> {
-                    }
-                    case RpmRepository rpmRepository -> {
-                    }
-                    case null, default -> throw new UnsupportedOperationException();
-                }
+                instance.rebuildRepository(repoIo, repository, repo);
             }
         }
 
@@ -220,12 +203,42 @@ public class SimpleRepoApplication {
             @CommandLine.ParentCommand
             Repo repo;
 
-            @CommandLine.Option(names = {"-a", "--add", "--package-to-add"}, description = "path to packages to add")
-            List<String> packagesToAdd;
+            @CommandLine.ArgGroup(multiplicity = "1")
+            AddSource source;
+
+            @CommandLine.Option(names = "--init",
+                    description = "empty repo policy: init (fails if !empty), allowed (if needed), re_init (always), disabled (fails if empty)")
+            RepositoryInitialization initialization = RepositoryInitialization.disabled;
 
             @Override
             public void run() {
+                var instance = instance();
+                RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
+                Repository<?> repository = instance.loadRepo(repo.getRepoType());
+                add(instance, repoIo, repository);
+            }
 
+            private <I extends RepoIo.RepoLocation, R> void add(SimpleRepoCli instance,
+                                                                RepoIo<I> repoIo,
+                                                                Repository<R> repository) {
+                if (source.config != null) {
+                    instance.addPackageConfigs(repoIo, repository, source.config, this);
+                } else {
+                    instance.addRepositoryIndexes(repoIo, repository, source.indexes, repo.keepVersions,
+                            initialization, repo.publicKey, repo.secretKey);
+                }
+            }
+
+            @Data
+            static class AddSource {
+                @Valid
+                @CommandLine.Option(names = {"-c", "--config"}, arity = "1..",
+                        description = "package configurations to build and add")
+                List<@Exists Path> config;
+
+                @CommandLine.Option(names = {"-i", "--index"}, arity = "1..",
+                        description = "repository coordinates of sidecar index files")
+                List<String> indexes;
             }
         }
     }

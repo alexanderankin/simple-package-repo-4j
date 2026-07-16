@@ -5,28 +5,82 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.experimental.Accessors;
+import lombok.extern.slf4j.Slf4j;
+import simple.repo.io.RepoIo;
 import simple.repo.keys.KeysUtils;
 import simple.repo.model.FileIntegrity;
 import simple.repo.model.FileIntegrityWithContent;
 import simple.repo.model.IndexFile;
+import simple.repo.model.PackageConfig;
+import simple.repo.repository.Repository;
+import simple.repo.repository.RepositoryBuilder;
+import simple.repo.repository.RepositoryInitialization;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
+@Slf4j
 @Data
 @Accessors(chain = true)
-public class DebRepoBuilder {
+public class DebRepoBuilder implements RepositoryBuilder {
     static final DateTimeFormatter RELEASE_DATE = DateTimeFormatter
             .ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US)
             .withZone(ZoneOffset.UTC);
-    private DebPackageBuilder debPackageBuilder = new DebPackageBuilder();
+    private DebPackageBuilder packageBuilder;
+
+    @Override
+    public String targetFromIndexPath(Repository.RepositoryPath indexPath) {
+        var parts = indexPath.getParts();
+        var pool = parts.indexOf("pool");
+        if (pool < 0 || pool + 1 >= parts.size()) {
+            throw new IllegalArgumentException("DEB index path must contain pool/<codename>: " + indexPath.joinParts());
+        }
+        return parts.get(pool + 1);
+    }
+
+    @Override
+    public PackageConfig prepareTarget(PackageConfig packageConfig, String target) {
+        if (target == null || target.isBlank() || target.contains("/")) {
+            throw new IllegalArgumentException("invalid DEB codename: " + target);
+        }
+        return packageConfig;
+    }
+
+    @Override
+    public Repository.RepositoryPath packagePath(String target, PackageConfig packageConfig) {
+        return Repository.RepositoryPath.of(List.of("pool", target, this.getPackageBuilder().fileName(packageConfig)));
+    }
+
+    @Override
+    public Map<String, FileIntegrityWithContent> build(Map<String, List<IndexFile>> packagesByTarget, Instant now) {
+        var builder = repoBuilder(new RepoConfig(), now);
+        packagesByTarget.forEach((target, packages) -> {
+            var section = builder.buildCodename(target);
+            packages.forEach(section::addPackage);
+            section.build();
+        });
+        var result = new LinkedHashMap<String, FileIntegrityWithContent>();
+        buildRepo(builder.build()).forEach((path, content) -> result.put("dists/" + path, content));
+        return result;
+    }
+
+    @Override
+    public Map<String, FileIntegrityWithContent> sign(Map<String, FileIntegrityWithContent> repositoryFiles,
+                                                      byte[] privateKey,
+                                                      byte[] publicKey,
+                                                      Instant now) {
+        return signRepo(repositoryFiles, privateKey, publicKey, now);
+    }
 
     public RepoBuilder repoBuilder(RepoConfig config) {
         return new RepoBuilder(config, Instant.now());
@@ -34,6 +88,105 @@ public class DebRepoBuilder {
 
     public RepoBuilder repoBuilder(RepoConfig config, Instant now) {
         return new RepoBuilder(config, now);
+    }
+
+    @Override
+    public List<IndexFile> readPublished(RepoIo<?> repoIo,
+                                         String target,
+                                         Collection<IndexFile> additions,
+                                         RepositoryInitialization initialization) {
+        if (initialization == RepositoryInitialization.re_init) throw new UnsupportedOperationException("re-init");
+        if (initialization == RepositoryInitialization.init) return List.of();
+        byte[] releaseBytes;
+        try {
+            releaseBytes = repoIo.downloadPackage(Repository.RepositoryPath.of(List.of("dists", target, "Release")));
+        } catch (Exception exception) {
+            if (initialization == RepositoryInitialization.allowed
+                    && exception instanceof RepoIo.ObjectNotFoundException) return List.of();
+            throw new IllegalStateException("DEB repository target is not initialized: " + target, exception);
+        }
+
+        var release = fields(new String(releaseBytes, StandardCharsets.UTF_8));
+        var components = release.get("Components");
+        var architectures = release.get("Architectures");
+
+        var result = new ArrayList<IndexFile>();
+        for (var component : words(components)) {
+            for (var arch : words(architectures)) {
+                var path = Repository.RepositoryPath.of(List.of(
+                        "dists", target, component, "binary-" + arch, "Packages.gz"));
+                try {
+                    var pathContent = repoIo.downloadPackage(path);
+                    String packages = gunzip(pathContent);
+                    if (!packages.isBlank())
+                        result.addAll(
+                                Arrays.stream(packages.split("\\n\\s*\\n"))
+                                        .map(this::fields)
+                                        .map(this::indexFile)
+                                        .toList()
+                        );
+                } catch (RepoIo.ObjectNotFoundException exception) {
+                    log.debug("could not find path {} in backend {}", path, repoIo.stringifyLocation());
+                } catch (Exception exception) {
+                    throw new IllegalStateException("unable to read published DEB index " + path.joinParts(), exception);
+                }
+            }
+        }
+        return result;
+    }
+
+    private IndexFile indexFile(Map<String, String> fields) {
+        var fileName = Path.of(fields.get("Filename")).getFileName().toString();
+        var parsedMeta = this.getPackageBuilder().metaFromFileName(fileName);
+        parsedMeta
+                .setArch(DebArch.valueOf(fields.get("Architecture")).getArch())
+                .setVersion(fields.get("Version"));
+        var control = new PackageConfig.ControlExtras()
+                .setMaintainer(fields.get("Maintainer"))
+                .setDescription(fields.get("Description"))
+                .setSection(fields.get("Section"))
+                .setPriority(fields.get("Priority"))
+                .setDepends(fields.get("Depends"))
+                .setConflicts(fields.get("Conflicts"))
+                .setRecommends(fields.get("Recommends"))
+                .setHomepage(fields.get("Homepage"));
+        if (fields.get("Installed-Size") != null)
+            control.setInstalledSize(Integer.valueOf(fields.get("Installed-Size")));
+        var config = new PackageConfig()
+                .setMeta(parsedMeta)
+                .setControl(control)
+                .setFiles(new PackageConfig.FileSpec().setControlFiles(List.of()).setDataFiles(List.of()));
+        var integrity = new FileIntegrity()
+                .setPath(fileName)
+                .setSize(Integer.parseInt(fields.get("Size")))
+                .setMd5(fields.get("MD5sum"))
+                .setSha1(fields.get("SHA1"))
+                .setSha256(fields.get("SHA256"))
+                .setSha512(fields.get("SHA512"));
+        return new IndexFile()
+                .setPackageConfig(config)
+                .setFileIntegrity(integrity);
+    }
+
+    private Map<String, String> fields(String content) {
+        var result = new LinkedHashMap<String, String>();
+        for (var line : content.lines().toList()) {
+            var separator = line.indexOf(':');
+            if (separator > 0)
+                result.put(line.substring(0, separator), line.substring(separator + 1).strip());
+        }
+        return result;
+    }
+
+    private List<String> words(String value) {
+        return value == null || value.isBlank() ? List.of() : List.of(value.trim().split("\\s+"));
+    }
+
+    @SneakyThrows
+    private String gunzip(byte[] content) {
+        try (var input = new GZIPInputStream(new ByteArrayInputStream(content))) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     public Map<String, FileIntegrityWithContent> buildRepo(Repo repo) {
@@ -79,7 +232,7 @@ public class DebRepoBuilder {
         var out = new StringBuilder()
                 .append("Package: ").append(meta.getName()).append('\n')
                 .append("Version: ").append(meta.getVersion()).append('\n')
-                .append("Architecture: ").append(debPackageBuilder.archName(meta.getArch())).append('\n')
+                .append("Architecture: ").append(this.getPackageBuilder().archName(meta.getArch())).append('\n')
                 .append("Maintainer: ").append(control.getMaintainer()).append('\n');
         appendOptional(out, "Depends", control.getDepends());
         appendOptional(out, "Conflicts", control.getConflicts());
@@ -228,7 +381,7 @@ public class DebRepoBuilder {
 
         public CodenameSectionBuilder addPackage(IndexFile packageMeta) {
             var config = packageMeta.getPackageConfig();
-            section.arches().add(debPackageBuilder.archName(config.getMeta().getArch()));
+            section.arches().add(packageBuilder.archName(config.getMeta().getArch()));
             section.components().add(config.getControl().getSection());
             packages.add(packageMeta);
             return this;
@@ -239,7 +392,7 @@ public class DebRepoBuilder {
                 for (var arch : section.arches()) {
                     var matching = packages.stream()
                             .filter(meta -> component.equals(meta.getPackageConfig().getControl().getSection()))
-                            .filter(meta -> arch.equals(debPackageBuilder.archName(meta.getPackageConfig().getMeta().getArch())))
+                            .filter(meta -> arch.equals(packageBuilder.archName(meta.getPackageConfig().getMeta().getArch())))
                             .toList();
                     var path = component + "/binary-" + arch + "/Packages";
                     var content = packagesIndex(section.getCodename(), matching).getBytes(StandardCharsets.UTF_8);

@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class DebRepoBuilderITest {
     DebPackageBuilder packageBuilder = new DebPackageBuilder();
-    DebRepoBuilder repoBuilder = new DebRepoBuilder();
+    DebRepoBuilder repoBuilder = (DebRepoBuilder) new DebRepository().repoBuilder();
 
     @SneakyThrows
     @Test

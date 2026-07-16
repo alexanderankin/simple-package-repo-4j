@@ -2,12 +2,11 @@ package simple.repo.deb;
 
 import lombok.Data;
 import lombok.experimental.Accessors;
-import org.apache.commons.collections4.IteratorUtils;
 import org.springframework.util.Assert;
 import simple.repo.io.RepoIo;
-import simple.repo.model.PackageConfig;
 import simple.repo.packaging.PackageBuilder;
 import simple.repo.repository.Repository;
+import simple.repo.repository.RepositoryBuilder;
 
 import java.util.Iterator;
 import java.util.List;
@@ -16,6 +15,11 @@ public class DebRepository extends Repository<DebRepository.DebRepoCoord> {
     @Override
     public PackageBuilder packageBuilder() {
         return new DebPackageBuilder();
+    }
+
+    @Override
+    public RepositoryBuilder repoBuilder() {
+        return new DebRepoBuilder().setPackageBuilder((DebPackageBuilder) packageBuilder());
     }
 
     @Override

@@ -5,10 +5,10 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 import org.apache.commons.lang3.StringUtils;
 import simple.repo.io.RepoIo;
-import simple.repo.model.PackageConfig;
 import simple.repo.packaging.PackageBuilder;
 import simple.repo.repository.Repository;
 import simple.repo.repository.RepositoryBuilder;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Iterator;
 import java.util.List;
@@ -22,6 +22,13 @@ public class RpmRepository extends Repository<RpmRepository.RpmRepoCoord> {
     @Override
     public PackageBuilder packageBuilder() {
         return new RpmPackageBuilder();
+    }
+
+    @Override
+    public RepositoryBuilder repoBuilder() {
+        return new RpmRepoBuilder()
+                .setJsonMapper(JsonMapper.builder().findAndAddModules().build())
+                .setPackageBuilder((RpmPackageBuilder) packageBuilder());
     }
 
     @Override
@@ -63,13 +70,10 @@ public class RpmRepository extends Repository<RpmRepository.RpmRepoCoord> {
     }
 
     @Override
-    public <L extends RepoIo.RepoLocation> Iterable<PackageConfig> scanIndexes(RepoIo<L> repoIo) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     protected <L extends RepoIo.RepoLocation> Iterator<RepositoryPath> iteratePoolPaths(RepoIo<L> repoIo) {
-        throw new UnsupportedOperationException();
+        return java.util.stream.StreamSupport.stream(repoIo.iterFiles("").spliterator(), false)
+                .filter(path -> path.getParts().contains(poolPath))
+                .iterator();
     }
 
     @Data
