@@ -11,6 +11,8 @@ import simple.repo.model.PackageConfig;
 import simple.repo.repository.Repository;
 import simple.repo.repository.RepositoryInitialization;
 import simple.repo.rpm.RpmRepository;
+import simple.repo.winget.RepoOutputWinget;
+import simple.repo.winget.WingetCertificateCli;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +22,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -27,6 +30,80 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SimpleRepoCliRepositoryTest {
     private final SimpleRepoCli cli = new SimpleRepoCli();
+
+    @Test
+    void oneCommandCreatesSignedFileBackedWingetRepository(@TempDir Path tempDir) throws Exception {
+        var repositoryDir = tempDir.resolve("winget");
+        var config = tempDir.resolve("config.yaml");
+        var pfx = tempDir.resolve("signing.pfx");
+        var cer = tempDir.resolve("signing.cer");
+        Files.writeString(config, """
+                meta:
+                  name: example
+                  arch: amd64
+                  version: 0.0.1
+                file:
+                  control: []
+                  data:
+                  - type: text
+                    content: write-output "hello"
+                    mode: 0x755
+                    path: hello.pwsh
+                """);
+        WingetCertificateCli.generate("CN=Simple Repo", pfx, cer, null, 0xE42, 0x800, false);
+
+        var exit = SimpleRepoApplication.commandLine().execute(
+                "repo", "-t", "winget",
+                "--repo", repositoryDir.toUri().toString(),
+                "--published-base", "https://mydomain.com/winget/",
+                "-P", cer.toString(), "-S", pfx.toString(),
+                "add", "--init=init", "-c", config.toString());
+
+        assertTrue(exit == 0, "repo add exit code");
+        assertTrue(Files.isRegularFile(repositoryDir.resolve("packages/example_0.0.1_x64.zip")));
+        assertTrue(Files.isRegularFile(repositoryDir.resolve("packages/example_0.0.1_x64.zip.spr4j-index.json")));
+        assertTrue(Files.isRegularFile(repositoryDir.resolve(".simple-repo/winget-catalog.json")));
+        assertTrue(Files.isRegularFile(repositoryDir.resolve("simple-repo-winget.cer")));
+        assertTrue(Files.walk(repositoryDir.resolve("manifests")).anyMatch(Files::isRegularFile));
+        var source = Files.readAllBytes(repositoryDir.resolve("source.msix"));
+        assertTrue(zipEntries(source).contains("AppxSignature.p7x"));
+        assertTrue(appxSignature(source).getSignerInfos().getSigners().stream()
+                .allMatch(signer -> signer.getUnsignedAttributes() == null),
+                "passwordless self-signed sources must not acquire a network timestamp chain");
+        var manifest = Files.walk(repositoryDir.resolve("manifests"))
+                .filter(Files::isRegularFile).findFirst().orElseThrow();
+        var manifestText = Files.readString(manifest);
+        assertTrue(manifestText.contains("https://mydomain.com/winget/packages/example_0.0.1_x64.zip"));
+        assertTrue(manifestText.contains("RelativeFilePath: 'hello.pwsh'"));
+    }
+
+    @Test
+    void buildsWingetPackageAndStaticSourceThroughGenericWorkflow(@TempDir Path tempDir) throws Exception {
+        var previousBaseUrl = System.getProperty(RepoOutputWinget.BASE_URL_PROPERTY);
+        System.setProperty(RepoOutputWinget.BASE_URL_PROPERTY, "https://packages.example.invalid/winget/");
+        try {
+            var io = new InMemoryRepoIo();
+            var repository = cli.loadRepo("winget");
+            var config = config("Example.CliPortable", "1.0.0", Arch.amd64);
+            config.getFiles().setDataFiles(List.of(new PackageConfig.PkgFileSpec.BinaryPkgFileSpec()
+                    .setContent("small PE fixture".getBytes(StandardCharsets.UTF_8))
+                    .setPath("bin/example-cli-portable.exe").setMode(0x755)));
+            var configFile = tempDir.resolve("portable.yaml");
+            Files.writeString(configFile, cli.yamlMapper.writeValueAsString(config));
+
+            cli.addPackageConfigs(io, repository, List.of(configFile), List.of("winget"), null,
+                    RepositoryInitialization.init, null, null);
+
+            assertTrue(io.getContents().containsKey("source.msix"));
+            assertTrue(io.getContents().containsKey(".simple-repo/winget-catalog.json"));
+            assertTrue(io.getContents().keySet().stream().anyMatch(path -> path.startsWith("manifests/")));
+            assertTrue(io.getContents().keySet().stream().anyMatch(path -> path.matches(
+                    "packages/Example\\.CliPortable_1\\.0\\.0_x64\\.zip")));
+        } finally {
+            if (previousBaseUrl == null) System.clearProperty(RepoOutputWinget.BASE_URL_PROPERTY);
+            else System.setProperty(RepoOutputWinget.BASE_URL_PROPERTY, previousBaseUrl);
+        }
+    }
 
     @Test
     void scansDebSidecarsAndRetainsOnlyTheNewestPublishedVersion() throws Exception {
@@ -158,6 +235,29 @@ class SimpleRepoCliRepositoryTest {
         try (var input = new GZIPInputStream(new ByteArrayInputStream(content))) {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private List<String> zipEntries(byte[] content) throws Exception {
+        var entries = new java.util.ArrayList<String>();
+        try (var zip = new ZipInputStream(new ByteArrayInputStream(content))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) entries.add(entry.getName());
+        }
+        return entries;
+    }
+
+    private org.bouncycastle.cms.CMSSignedData appxSignature(byte[] content) throws Exception {
+        try (var zip = new ZipInputStream(new ByteArrayInputStream(content))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (entry.getName().equals("AppxSignature.p7x")) {
+                    var signature = zip.readAllBytes();
+                    return new org.bouncycastle.cms.CMSSignedData(
+                            java.util.Arrays.copyOfRange(signature, 0x4, signature.length));
+                }
+            }
+        }
+        throw new AssertionError("missing AppxSignature.p7x");
     }
 
     private static class NoScanRepoIo extends InMemoryRepoIo {

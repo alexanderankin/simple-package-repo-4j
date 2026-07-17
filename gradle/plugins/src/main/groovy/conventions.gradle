@@ -76,8 +76,16 @@ dependencies {
         // Source: https://mvnrepository.com/artifact/org.pgpainless/pgpainless-core
         implementation 'org.pgpainless:pgpainless-core:2.0.3'
         implementation 'org.pgpainless:pgpainless-sop:2.0.3'
+        // unfortunately we need pkix so we may as well list all three
+        // Source: https://mvnrepository.com/artifact/org.bouncycastle/bcpkix-jdk18on
+        implementation 'org.bouncycastle:bcpkix-jdk18on:1.84'
+        implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
+        implementation 'org.bouncycastle:bcpg-jdk18on:1.84'
         // Source: https://mvnrepository.com/artifact/com.github.luben/zstd-jni
         implementation 'com.github.luben:zstd-jni:1.5.7-8'
+        // Source: https://mvnrepository.com/artifact/info.picocli/picocli
+        annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
+        implementation 'info.picocli:picocli:4.7.6'
     }
 }
 

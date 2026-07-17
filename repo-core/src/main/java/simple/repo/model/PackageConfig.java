@@ -32,6 +32,7 @@ public class PackageConfig {
     ControlExtras control;
     @NotNull
     @Valid
+    @JsonAlias("file")
     PackageConfig.FileSpec files;
     @Valid
     Settings settings;
@@ -197,7 +198,9 @@ public class PackageConfig {
     @Accessors(chain = true)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class FileSpec {
+        @JsonAlias("control")
         List<@Valid PkgFileSpec> controlFiles;
+        @JsonAlias("data")
         List<@Valid PkgFileSpec> dataFiles;
     }
 

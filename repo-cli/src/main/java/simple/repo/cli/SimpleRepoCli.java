@@ -216,10 +216,11 @@ public class SimpleRepoCli {
                                                                      RepositoryInitialization initialization,
                                                                      Path publicKey,
                                                                      Path secretKey) {
-        if (targets == null || targets.isEmpty()) {
+        var builder = repository.repoBuilder();
+        if (targets == null || targets.isEmpty()) targets = builder.defaultTargets();
+        if (targets.isEmpty()) {
             throw new IllegalArgumentException("config-based repository add requires at least one --target");
         }
-        var builder = repository.repoBuilder();
         var indexPaths = new ArrayList<String>();
         for (var configPath : configPaths) {
             var sourceConfig = readPackageConfig(configPath);
@@ -295,9 +296,16 @@ public class SimpleRepoCli {
             throw new IllegalArgumentException("public and secret signing keys must be supplied together");
         }
         var now = Instant.now();
+        byte[] privateKeyBytes = null;
+        byte[] publicKeyBytes = null;
+        if (publicKey != null) {
+            privateKeyBytes = Files.readAllBytes(secretKey);
+            publicKeyBytes = Files.readAllBytes(publicKey);
+            builder.prepareSigning(privateKeyBytes, publicKeyBytes);
+        }
         var files = builder.build(packagesByTarget, now);
         if (publicKey != null) {
-            files.putAll(builder.sign(files, Files.readAllBytes(secretKey), Files.readAllBytes(publicKey), now));
+            files.putAll(builder.sign(files, privateKeyBytes, publicKeyBytes, now));
         }
         files.entrySet().stream()
                 .sorted(Comparator.comparingInt(entry -> commitFile(entry.getKey()) ? 1 : 0))
@@ -306,7 +314,8 @@ public class SimpleRepoCli {
     }
 
     private boolean commitFile(String path) {
-        return path.endsWith("/Release") || path.endsWith("/InRelease") || path.endsWith("/repomd.xml");
+        return path.endsWith("/Release") || path.endsWith("/InRelease") || path.endsWith("/repomd.xml")
+                || path.equals("source.msix");
     }
 
     private Map<String, List<IndexFile>> groupAndRetain(List<TargetIndex> indexes, Integer keepVersions) {

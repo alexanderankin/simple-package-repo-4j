@@ -15,6 +15,13 @@ import java.util.Map;
 public interface RepositoryBuilder {
     PackageBuilder getPackageBuilder();
 
+    default List<String> defaultTargets() {
+        return List.of();
+    }
+
+    default void prepareSigning(byte[] privateKey, byte[] publicKey) {
+    }
+
     String targetFromIndexPath(Repository.RepositoryPath indexPath);
 
     @Contract(pure = true)

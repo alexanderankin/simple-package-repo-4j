@@ -154,6 +154,10 @@ public class SimpleRepoApplication {
         @CommandLine.Option(names = "--keep-versions", description = "latest versions to publish per package and architecture")
         Integer keepVersions;
 
+        @CommandLine.Option(names = "--published-base",
+                description = "public base URI used by repositories whose metadata links to hosted files")
+        URI publishedBase;
+
         @Exists
         @CommandLine.Option(names = {"-P", "--public-key"}, description = "repository signing public key")
         Path publicKey;
@@ -177,7 +181,7 @@ public class SimpleRepoApplication {
             public void run() {
                 var instance = instance();
                 RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
-                Repository<?> repository = instance.loadRepo(repo.getRepoType());
+                Repository<?> repository = instance.loadRepo(repo.getRepoType()).setPublishedBase(repo.publishedBase);
                 instance.indexRepositoryPackages(repoIo, repository, packages);
             }
         }
@@ -192,7 +196,7 @@ public class SimpleRepoApplication {
             public void run() {
                 var instance = instance();
                 RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
-                Repository<?> repository = instance.loadRepo(repo.getRepoType());
+                Repository<?> repository = instance.loadRepo(repo.getRepoType()).setPublishedBase(repo.publishedBase);
                 instance.rebuildRepository(repoIo, repository, repo);
             }
         }
@@ -214,7 +218,7 @@ public class SimpleRepoApplication {
             public void run() {
                 var instance = instance();
                 RepoIo<?> repoIo = instance.loadRepoIo(repo.getRepoBase());
-                Repository<?> repository = instance.loadRepo(repo.getRepoType());
+                Repository<?> repository = instance.loadRepo(repo.getRepoType()).setPublishedBase(repo.publishedBase);
                 add(instance, repoIo, repository);
             }
 

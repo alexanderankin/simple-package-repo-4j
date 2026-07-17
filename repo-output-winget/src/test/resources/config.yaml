@@ -1,0 +1,15 @@
+meta:
+  arch: amd64
+  name: example-winget
+  version: 0.0.1
+control:
+  maintainer: maintainer
+  description: description
+files:
+  controlFiles: []
+  dataFiles:
+    - type: text
+      path: hello.pwsh
+      mode: 0x755
+      content: |
+        Write-Output 'hello world'

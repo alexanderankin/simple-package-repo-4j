@@ -8,12 +8,19 @@ import simple.repo.model.PackageConfig;
 import simple.repo.packaging.PackageBuilder;
 
 import java.nio.file.Path;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
 public abstract class Repository<Coordinate> {
+    public Repository<Coordinate> setPublishedBase(URI publishedBase) {
+        if (publishedBase != null)
+            throw new UnsupportedOperationException(getClass().getSimpleName() + " does not use --published-base");
+        return this;
+    }
+
     protected static RepositoryPath path(String... parts) {
         return new RepositoryPath().setParts(Arrays.asList(parts));
     }

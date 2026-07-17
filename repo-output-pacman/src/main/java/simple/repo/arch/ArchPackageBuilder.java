@@ -59,6 +59,11 @@ public class ArchPackageBuilder implements PackageBuilder {
         return stringBuilder.toString();
     }
 
+    @Override
+    public PackageConfig.PackageMeta metaFromFileName(String fileName) {
+        throw new UnsupportedOperationException();
+    }
+
     private String getPackageVersion(PackageConfig.PackageMeta m) {
         var relPart = m.getReleaseVersion() == null ? "" : "-" + m.getReleaseVersion();
         return m.getVersion() + relPart;

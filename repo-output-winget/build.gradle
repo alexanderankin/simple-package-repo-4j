@@ -4,4 +4,20 @@ plugins {
 
 dependencies {
     implementation project(':repo-core')
+    implementation 'org.xerial:sqlite-jdbc'
+    annotationProcessor 'info.picocli:picocli-codegen'
+    implementation 'info.picocli:picocli'
+    implementation 'org.bouncycastle:bcprov-jdk18on'
+    implementation 'org.bouncycastle:bcpkix-jdk18on'
+    implementation 'net.jsign:jsign-core:7.5'
+    testImplementation 'tools.jackson.dataformat:jackson-dataformat-yaml'
+}
+
+tasks.register('wingetCert', JavaExec) {
+    group = 'application'
+    description = 'Generate a WinGet MSIX code-signing PFX and client certificate'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'simple.repo.winget.WingetCertificateCli'
+    standardInput = System.in
+    workingDir = rootProject.projectDir
 }
