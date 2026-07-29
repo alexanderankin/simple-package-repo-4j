@@ -82,7 +82,7 @@ public class DebPackageBuilderITest {
                 meta:
                   name: simple-postinst
                   version: 0.0.1
-                  arch: arm64
+                  arch: __CURRENT_ARCH__
                 control:
                   maintainer: maintainer
                   description: description
@@ -93,7 +93,7 @@ public class DebPackageBuilderITest {
                       content: touch /tmp/simple-postinst
                       mode: 0x755
                   dataFiles: []
-                """, PackageConfig.class));
+                """.replace("__CURRENT_ARCH__", Arch.current().name()), PackageConfig.class));
         var deb = buildDeb.buildPackage(config);
         assertEquals(1, config.getFiles().getControlFiles().size());
         assertEquals(Integer.parseInt("755", 16), config.getFiles().getControlFiles().getFirst().getMode());
@@ -115,7 +115,7 @@ public class DebPackageBuilderITest {
                 meta:
                   name: file-file
                   version: 0.0.1
-                  arch: arm64
+                  arch: __CURRENT_ARCH__
                 control:
                   maintainer: maintainer
                   description: description
@@ -129,7 +129,7 @@ public class DebPackageBuilderITest {
                     - type: file
                       path: /etc/file-file/my-file
                       sourcePath: my-file
-                """, PackageConfig.class));
+                """.replace("__CURRENT_ARCH__", Arch.current().name()), PackageConfig.class));
         var deb = buildDeb.buildPackage(config);
 
         try (var container = packageContainer(deb)) {

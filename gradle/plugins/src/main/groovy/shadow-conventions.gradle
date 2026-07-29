@@ -1,0 +1,25 @@
+plugins {
+    id 'application'
+    id 'com.gradleup.shadow' // version '9.3.1' // https://plugins.gradle.org/plugin/com.gradleup.shadow
+}
+
+jar.manifest { attributes(['Implementation-Version': version]) }
+
+def projectName = project.name
+tasks.register('shadowJarExecutable') {
+    def inputFile = tasks.named('shadowJar').get().outputs.files.singleFile.toPath()
+    inputs.file inputFile
+
+    def outputFile = inputFile.parent.parent.resolve('executableJars').resolve(projectName)
+    outputs.file outputFile
+
+    doLast {
+        outputFile.parent.toFile().mkdirs()
+        try (var os = Files.newOutputStream(outputFile, StandardOpenOption.CREATE)) {
+            os.write('#!/usr/bin/env -S java -jar\n'.getBytes())
+            os.write(Files.readAllBytes(inputFile))
+            Files.setPosixFilePermissions(outputFile, PosixFilePermissions.fromString("rwxr-xr-x"))
+        }
+    }
+    dependsOn 'shadowJar'
+}

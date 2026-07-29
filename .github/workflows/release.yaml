@@ -1,0 +1,71 @@
+on:
+  pull_request:
+    branches: &branches
+      - main
+    paths: &paths
+      - .github/workflows/release.yaml
+      - 'repo-cli/**'
+    types:
+      - opened
+      - synchronize
+  push:
+    branches: *branches
+    paths: *paths
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew -p repo-cli shadowJar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: 'repo-cli-shadowJar'
+          path: 'repo-cli/build/libs'
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      VERSION: ${{ steps.compare.outputs.VERSION }}
+      VERSION_CHANGED: ${{ steps.compare.outputs.VERSION_CHANGED }}
+    steps:
+      - { uses: actions/checkout@v7, with: { fetch-depth: 0 } }
+      - { uses: tj-actions/changed-files@v47, id: changed_files }
+      - run: |
+          file=repo-cli/version.txt
+          echo "VERSION=$(cat repo-cli/version.txt)" >> "${GITHUB_OUTPUT}"
+          if ! echo '${{ steps.changed_files.outputs.all_changed_and_modified_files }}' | tr ' ' '\n' | grep '^'${file}'$'
+          then
+            echo "VERSION_CHANGED=" | tee -a "${GITHUB_OUTPUT}"
+          else
+            echo "VERSION_CHANGED=1" | tee -a "${GITHUB_OUTPUT}"
+          fi
+        id: compare
+
+  release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref_name == 'main'
+    needs:
+      - build
+      - version
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: 'repo-cli-shadowJar'
+          path: 'repo-cli/build/libs'
+      - uses: softprops/action-gh-release@v3
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            repo-cli/build/libs/repo-cli-*-all.jar
+          tag_name: simple-repo-${{ needs.version.outputs.VERSION }}
