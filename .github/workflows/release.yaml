@@ -43,7 +43,7 @@ jobs:
       - run: |
           file=repo-cli/version.txt
           echo "VERSION=$(cat repo-cli/version.txt)" >> "${GITHUB_OUTPUT}"
-          if ! echo '${{ steps.changed_files.outputs.modified_files }}' | tr ' ' '\n' | grep '^'${file}'$'
+          if ! echo '${{ steps.changed_files.outputs.all_changed_and_modified_files }}' | tr ' ' '\n' | grep '^'${file}'$'
           then
             echo "VERSION_CHANGED=" | tee -a "${GITHUB_OUTPUT}"
           else
