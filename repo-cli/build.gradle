@@ -1,8 +1,9 @@
 plugins {
     id 'conventions'
-    id 'application'
+    id 'shadow-conventions'
 }
 
+version = file('version.txt').text.strip()
 application.mainClass = 'simple.repo.cli.SimpleRepoApplication'
 
 dependencies {
